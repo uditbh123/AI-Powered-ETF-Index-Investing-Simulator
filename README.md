@@ -45,10 +45,29 @@ On startup the app creates the SQLite database (`backend/simulator.db`) by
 applying `backend/schema.sql`. The schema is idempotent (`CREATE TABLE IF NOT
 EXISTS`), so restarting is safe.
 
+## Market data ingestion (Phase 1)
+
+A fixed catalog of ETFs/indices lives in
+`backend/app/data/ticker_catalog.py`. To pull (or refresh) their full daily
+close history into SQLite:
+
+```bash
+cd backend
+python -m app.scripts.ingest                  # all tickers, full history
+python -m app.scripts.ingest --symbols SPY QQQ --start 2020-01-01
+```
+
+Fetching is idempotent — re-running only inserts new trading days, never
+duplicates. The API server also seeds the catalog on startup and (when
+`ENABLE_SCHEDULER=true`) refreshes every day at `REFRESH_HOUR:REFRESH_MINUTE`
+(see `.env.example`). One-off refreshes can be run at any time via the CLI.
+
 ## Backend tests
 
 The simulation engine (Phase 2) is a pure, API-independent module validated
-against analytically solvable baselines. Run its tests from `backend/`:
+against analytically solvable baselines. The DAO and ingestion layers
+(Phase 1) are tested against a temp SQLite file with mocked fetch output, so
+tests never touch the network. Run everything from `backend/`:
 
 ```bash
 cd backend

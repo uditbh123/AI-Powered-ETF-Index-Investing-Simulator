@@ -17,5 +17,11 @@ class Settings(BaseSettings):
     market_data_api_key: str = ""
     news_api_key: str = ""
 
+    # --- scheduler (daily data refresh) -----------------------------------
+    enable_scheduler: bool = True
+    scheduler_timezone: str = "UTC"
+    refresh_hour: int = 6
+    refresh_minute: int = 30
+
 
 settings = Settings()

@@ -2,14 +2,23 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
+from .config import settings
 from .database import check_db_connected, init_db
 from .routers import health
+from .scheduler import create_scheduler, shutdown_scheduler
+from .services.market_data import seed_catalog
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     init_db()
-    yield
+    seed_catalog()
+    scheduler = create_scheduler() if settings.enable_scheduler else None
+    try:
+        yield
+    finally:
+        if scheduler is not None:
+            shutdown_scheduler(scheduler)
 
 
 app = FastAPI(
