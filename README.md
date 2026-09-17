@@ -62,6 +62,27 @@ duplicates. The API server also seeds the catalog on startup and (when
 `ENABLE_SCHEDULER=true`) refreshes every day at `REFRESH_HOUR:REFRESH_MINUTE`
 (see `.env.example`). One-off refreshes can be run at any time via the CLI.
 
+## Backend API (Phase 3)
+
+Interactive docs at http://127.0.0.1:8000/docs. From the browser the Vite
+dev server exposes these via the `/api` prefix (e.g. `/api/tickers`).
+
+| Method | Path | Purpose |
+|---|---|---|
+| GET | `/tickers` | Catalog + per-ticker price row counts and date range |
+| POST | `/portfolios` | Create a config: name, monthly contribution, holdings (symbol + weight) |
+| GET | `/portfolios` | List portfolios |
+| GET | `/portfolios/{id}` | Portfolio detail with holdings |
+| POST | `/portfolios/{id}/simulate` | Run a Monte Carlo simulation; params: `initial_balance`, `horizon_months`, `n_simulations`, optional `seed`/`blocks` |
+| GET | `/simulation-runs/{id}` | Fetch a cached run's results |
+
+`POST .../simulate` caches identical parameter sets in SQLite
+(`simulation_runs`/`simulation_results`), so repeated page loads don't
+recompute. Re-running with identical params returns `"cached": true` and the
+same `run_id`. Daily closes are resampled to monthly returns per holding,
+combined with normalized weights into a portfolio return series, and fed to
+the Phase 2 engine.
+
 ## Backend tests
 
 The simulation engine (Phase 2) is a pure, API-independent module validated

@@ -1,0 +1,217 @@
+"""Simulation orchestration: DB-backed returns, Monte Carlo, result caching.
+
+This layer connects Phase 1 data (prices in SQLite) with the Phase 2 pure
+engine. It converts daily closes to portfolio-level monthly returns so the
+engine's per-period contribution aligns with monthly investing.
+"""
+from __future__ import annotations
+
+import json
+import sqlite3
+from collections.abc import Sequence
+from typing import Any
+
+import numpy as np
+import pandas as pd
+
+from ..simulation import monte_carlo
+from ..dao import portfolios as portfolio_dao
+from ..dao import prices as price_dao
+from ..dao import simulations as simulation_dao
+
+
+def portfolio_monthly_returns(
+    conn: sqlite3.Connection,
+    holdings: Sequence[sqlite3.Row],
+) -> np.ndarray:
+    """Weighted monthly portfolio returns from stored daily closes.
+
+    Each holding's closes are resampled to month-end, combined into a single
+    frame, forward-filled, and the ragged early period (before every holding
+    has data) is dropped. The monthly portfolio return is the weighted average
+    of holding returns, weights normalized to sum to 1.
+    """
+    series_by_symbol: dict[str, pd.Series] = {}
+    for holding in holdings:
+        rows = price_dao.get_price_history(conn, holding["ticker_id"])
+        if not rows:
+            continue
+        index = pd.to_datetime([r["date"] for r in rows])
+        closes = pd.Series([float(r["close"]) for r in rows], index=index, dtype=float)
+        series_by_symbol[holding["symbol"]] = closes.sort_index().resample("ME").last()
+
+    missing = [h["symbol"] for h in holdings if h["symbol"] not in series_by_symbol]
+    if missing:
+        raise ValueError(f"no price history for holdings: {', '.join(sorted(missing))}")
+
+    frame = pd.DataFrame(series_by_symbol).sort_index().ffill().dropna(how="any")
+    monthly_returns = frame.pct_change().dropna(how="any")
+    if monthly_returns.empty:
+        raise ValueError("not enough overlapping monthly history to simulate")
+
+    weights = np.array([float(h["weight"]) for h in holdings], dtype=float)
+    weights = weights / weights.sum()
+    symbols = [h["symbol"] for h in holdings]
+    portfolio_returns = (monthly_returns[symbols].to_numpy() * weights).sum(axis=1)
+    if portfolio_returns.size < 2:
+        raise ValueError("need at least two monthly returns to simulate")
+    return portfolio_returns
+
+
+def canonical_params(
+    *,
+    initial_balance: float,
+    monthly_contribution: float,
+    horizon_months: int,
+    n_simulations: int,
+    blocks: int | None,
+    seed: int | None,
+) -> dict[str, Any]:
+    """Ordering-independent parameter key used for result caching."""
+    return {
+        "initial_balance": float(initial_balance),
+        "monthly_contribution": float(monthly_contribution),
+        "horizon_months": int(horizon_months),
+        "n_simulations": int(n_simulations),
+        "blocks": blocks,
+        "seed": seed,
+    }
+
+
+def _assemble_response(
+    run_id: int,
+    portfolio_id: int,
+    created_at: str,
+    params: dict[str, Any],
+    levels: list[float],
+    trajectories: list[list[float]],
+    cached: bool,
+) -> dict[str, Any]:
+    finals = [path[-1] for path in trajectories]
+    return {
+        "run_id": run_id,
+        "portfolio_id": portfolio_id,
+        "created_at": created_at,
+        "cached": cached,
+        "params": params,
+        "percentiles": [
+            {"level": level, "path": path}
+            for level, path in zip(levels, trajectories, strict=True)
+        ],
+        "summary": {
+            "worst_case_final_value": finals[0],
+            "median_final_value": finals[len(finals) // 2],
+            "best_case_final_value": finals[-1],
+        },
+    }
+
+
+def run_portfolio_simulation(
+    conn: sqlite3.Connection,
+    portfolio_id: int,
+    *,
+    initial_balance: float,
+    horizon_months: int,
+    n_simulations: int = 1000,
+    blocks: int | None = None,
+    seed: int | None = None,
+) -> dict[str, Any]:
+    """Run (or fetch a cached) simulation for a portfolio. Raises ValueError.
+
+    ``monthly_contribution`` comes from the portfolio record, so results are
+    keyed by the contribution actually used.
+    """
+    portfolio = portfolio_dao.get_portfolio(conn, portfolio_id)
+    if portfolio is None:
+        raise ValueError(f"portfolio {portfolio_id} not found")
+
+    holdings = portfolio_dao.list_holdings(conn, portfolio_id)
+    if not holdings:
+        raise ValueError("portfolio has no holdings")
+
+    monthly_contribution = float(portfolio["monthly_contribution"])
+    params = canonical_params(
+        initial_balance=initial_balance,
+        monthly_contribution=monthly_contribution,
+        horizon_months=horizon_months,
+        n_simulations=n_simulations,
+        blocks=blocks,
+        seed=seed,
+    )
+    params_json = json.dumps(params, sort_keys=True)
+
+    cached_run = simulation_dao.find_cached_run(conn, portfolio_id, params_json)
+    if cached_run is not None and simulation_dao.has_results(conn, cached_run["id"]):
+        results = simulation_dao.get_results(conn, cached_run["id"])
+        levels = [float(r["percentile"]) for r in results]
+        trajectories = [json.loads(r["path_json"]) for r in results]
+        return _assemble_response(
+            run_id=cached_run["id"],
+            portfolio_id=portfolio_id,
+            created_at=cached_run["created_at"],
+            params=params,
+            levels=levels,
+            trajectories=trajectories,
+            cached=True,
+        )
+
+    returns = portfolio_monthly_returns(conn, holdings)
+    result = monte_carlo.run_simulation(
+        returns,
+        initial_balance=initial_balance,
+        monthly_contribution=monthly_contribution,
+        horizon_months=horizon_months,
+        n_simulations=n_simulations,
+        blocks=blocks,
+        seed=seed,
+    )
+
+    run_id = simulation_dao.create_run(conn, portfolio_id, params_json)
+    levels_list = result["percentile_levels"]
+    trajectories = [
+        [round(float(x), 2) for x in path] for path in result["percentiles"]
+    ]
+    simulation_dao.save_results(
+        conn, run_id, zip(levels_list, (json.dumps(p) for p in trajectories))
+    )
+    conn.commit()
+
+    return _assemble_response(
+        run_id=run_id,
+        portfolio_id=portfolio_id,
+        created_at=simulation_dao.get_run(conn, run_id)["created_at"],
+        params=params,
+        levels=levels_list,
+        trajectories=trajectories,
+        cached=False,
+    )
+
+
+def get_run_response(conn: sqlite3.Connection, run_id: int) -> dict[str, Any] | None:
+    """Assemble a stored run's full response, or None if not found."""
+    run = simulation_dao.get_run(conn, run_id)
+    if run is None:
+        return None
+    results = simulation_dao.get_results(conn, run_id)
+    if not results:
+        return {"run_id": run_id, "error": "run has no stored results"}
+    params = json.loads(run["params_json"])
+    levels = [float(r["percentile"]) for r in results]
+    trajectories = [json.loads(r["path_json"]) for r in results]
+    return _assemble_response(
+        run_id=run_id,
+        portfolio_id=run["portfolio_id"],
+        created_at=run["created_at"],
+        params=params,
+        levels=levels,
+        trajectories=trajectories,
+        cached=True,
+    )
+
+
+__all__ = [
+    "portfolio_monthly_returns",
+    "canonical_params",
+    "run_portfolio_simulation",
+    "get_run_response",
+]

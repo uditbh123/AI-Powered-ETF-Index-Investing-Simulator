@@ -10,7 +10,12 @@ import pytest
 from app.dao import prices as price_dao
 from app.dao import tickers as ticker_dao
 from app.database import get_connection
-from app.services.market_data import history_to_rows, refresh_catalog, refresh_ticker
+from app.services.market_data import (
+    fetch_history,
+    history_to_rows,
+    refresh_catalog,
+    refresh_ticker,
+)
 
 
 def make_frame(symbol: str, rows: list[tuple[str, float, float]]) -> pd.DataFrame:
@@ -39,6 +44,41 @@ def fake_fetcher(frames: dict[str, pd.DataFrame]):
     def fetcher(symbol: str, start=None, end=None) -> pd.DataFrame:
         return frames.get(symbol, pd.DataFrame())
     return fetcher
+
+
+# ---------------------------------------------------------------------------
+# fetch_history defaults
+# ---------------------------------------------------------------------------
+
+def test_fetch_history_requests_full_history_when_no_start(monkeypatch):
+    import yfinance as yf
+
+    captured = {}
+
+    def fake_download(*args, **kwargs):
+        captured["args"] = args
+        captured["kwargs"] = kwargs
+        return pd.DataFrame()
+
+    monkeypatch.setattr(yf, "download", fake_download)
+    fetch_history("SPY")
+    assert captured["kwargs"].get("period") == "max"
+    assert "start" not in captured["kwargs"]
+
+
+def test_fetch_history_forwards_explicit_start(monkeypatch):
+    import yfinance as yf
+
+    captured = {}
+
+    def fake_download(*args, **kwargs):
+        captured["kwargs"] = kwargs
+        return pd.DataFrame()
+
+    monkeypatch.setattr(yf, "download", fake_download)
+    fetch_history("SPY", start="2020-01-01", end="2020-06-01")
+    assert captured["kwargs"]["start"] == "2020-01-01"
+    assert captured["kwargs"]["end"] == "2020-06-01"
 
 
 # ---------------------------------------------------------------------------

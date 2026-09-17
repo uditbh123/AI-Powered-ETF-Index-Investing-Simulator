@@ -29,9 +29,24 @@ def fetch_history(
     start: str | None = None,
     end: str | None = None,
 ) -> pd.DataFrame:
-    """Download daily OHLCV history for a single symbol via yfinance."""
+    """Download daily OHLCV history for a single symbol via yfinance.
+
+    With no explicit start date, requests the full available history: yfinance
+    defaults to only one month when both period and start are omitted, so we
+    explicitly pass ``period="max"``.
+    """
     import yfinance as yf  # lazy: keep yfinance optional at import time
 
+    if start is None:
+        return yf.download(
+            symbol,
+            period="max",
+            end=end,
+            interval="1d",
+            auto_adjust=True,
+            progress=False,
+            threads=False,
+        )
     return yf.download(
         symbol,
         start=start,

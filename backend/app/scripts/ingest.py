@@ -68,7 +68,7 @@ def main(argv: list[str] | None = None) -> int:
                 print(
                     f"  {sym:6s}  rows={info['rows']}  "
                     f"inserted={info['inserted']}  "
-                    f"{info['first']} → {info['last']}"
+                    f"{info['first']} -> {info['last']}"
                 )
 
     print(f"\nDone: {ok_count} succeeded, {len(errors)} failed out of {len(results)} tickers.")
