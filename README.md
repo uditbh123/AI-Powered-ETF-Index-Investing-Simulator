@@ -45,6 +45,17 @@ On startup the app creates the SQLite database (`backend/simulator.db`) by
 applying `backend/schema.sql`. The schema is idempotent (`CREATE TABLE IF NOT
 EXISTS`), so restarting is safe.
 
+## Backend tests
+
+The simulation engine (Phase 2) is a pure, API-independent module validated
+against analytically solvable baselines. Run its tests from `backend/`:
+
+```bash
+cd backend
+.venv\Scripts\activate        # or: python -m venv .venv once on first setup
+pytest
+```
+
 ## Frontend setup
 
 ```bash
