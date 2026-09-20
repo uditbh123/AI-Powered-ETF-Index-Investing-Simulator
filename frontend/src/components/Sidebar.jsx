@@ -14,22 +14,22 @@ const NAV_ITEMS = [
 
 function linkClass(isActive) {
   return [
-    'group flex items-center gap-2.5 rounded-md px-3 py-2 text-sm font-medium transition-colors',
+    'group flex items-center gap-2.5 border-l-2 py-2 pl-2.5 pr-3 text-sm font-medium transition-colors',
     isActive
-      ? 'bg-accent-dim/15 text-accent'
-      : 'text-ink-soft hover:bg-base-hover hover:text-ink',
+      ? 'border-white text-white'
+      : 'border-transparent text-ink-soft hover:border-white/20 hover:text-white',
   ].join(' ')
 }
 
 export default function Sidebar() {
   return (
-    <aside className="flex w-56 shrink-0 flex-col border-r border-edge bg-base-panel">
-      <div className="flex h-14 items-center gap-2.5 border-b border-edge-subtle px-4">
-        <span className="flex h-8 w-8 items-center justify-center rounded-md border border-accent-dim/40 bg-accent-dim/15 text-accent shadow-accent-glow">
+    <aside className="flex w-56 shrink-0 flex-col border-r border-white/10 bg-black">
+      <div className="flex h-14 items-center gap-2.5 border-b border-white/5 px-4">
+        <span className="flex h-8 w-8 items-center justify-center rounded-md border border-white/20 text-white">
           <ChartCandlestick size={16} strokeWidth={2} />
         </span>
         <span className="leading-tight">
-          <span className="block text-sm font-semibold tracking-wide text-ink">
+          <span className="block text-sm font-semibold tracking-wide text-white">
             ETF Terminal
           </span>
           <span className="block text-[10px] uppercase tracking-[0.14em] text-ink-faint">
@@ -47,9 +47,9 @@ export default function Sidebar() {
         ))}
       </nav>
 
-      <div className="flex items-center gap-2 border-t border-edge-subtle px-4 py-3 text-[10px] text-ink-dim">
+      <div className="flex items-center gap-2 border-t border-white/5 px-4 py-3 text-[10px] text-ink-dim">
         <Settings size={12} strokeWidth={1.8} />
-        <span>Phase 4.5 · UI overhaul</span>
+        <span>Phase 4.6 · true black</span>
       </div>
     </aside>
   )

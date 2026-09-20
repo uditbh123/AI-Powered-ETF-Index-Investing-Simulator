@@ -1,17 +1,19 @@
 import { Route, Routes } from 'react-router-dom'
 import Sidebar from './components/Sidebar'
 import DisclaimerBanner from './components/DisclaimerBanner'
+import AmbientDataGrid from './components/AmbientDataGrid'
 import Home from './pages/Home'
 import Simulator from './pages/Simulator'
 import Tickers from './pages/Tickers'
 
 function App() {
   return (
-    <div className="flex h-screen overflow-hidden bg-base">
+    <div className="relative flex h-screen overflow-hidden">
+      <AmbientDataGrid />
       <Sidebar />
 
       <div className="flex min-w-0 flex-1 flex-col">
-        <header className="shrink-0 border-b border-edge bg-base-panel">
+        <header className="shrink-0 border-b border-white/10 bg-black">
           <DisclaimerBanner />
         </header>
 

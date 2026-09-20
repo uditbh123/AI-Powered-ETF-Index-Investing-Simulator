@@ -56,7 +56,7 @@ function FieldSlider({ icon: Icon, label, value, min, max, step, onChange, rende
 function ChartTooltip({ active, payload, label }) {
   if (!active || !payload?.length) return null
   return (
-    <div className="rounded-md border border-edge bg-base-panel px-3 py-2 shadow-panel">
+    <div className="rounded-md border border-white/10 bg-black px-3 py-2">
       <div className="text-[11px] text-ink-faint">
         Year {Math.floor(label / 12)} · month {label % 12}
       </div>

@@ -4,8 +4,8 @@
 
 /* Shared visual tokens (recharts + any runtime styling) */
 :root {
-  --chart-grid: #1f2734;
-  --chart-axis: #5d6b80;
+  --chart-grid: rgba(255, 255, 255, 0.08);
+  --chart-axis: #737373;
   --chart-line: #4cc2ff;
   --chart-glow: rgba(76, 194, 255, 0.25);
   --up: #16c98e;
@@ -19,21 +19,17 @@ body {
 }
 
 body {
-  @apply bg-base-deep text-ink font-sans antialiased;
-  background-image:
-    radial-gradient(1200px 600px at 80% -10%, rgba(76, 194, 255, 0.06), transparent 60%),
-    radial-gradient(900px 500px at 0% 110%, rgba(22, 201, 142, 0.04), transparent 55%);
-  background-attachment: fixed;
+  @apply bg-black font-sans text-white antialiased;
 }
 
 ::selection {
-  @apply bg-accent-dim/40 text-accent;
+  @apply bg-white text-black;
 }
 
 /* Slim, dark scrollbars */
 * {
   scrollbar-width: thin;
-  scrollbar-color: #2e3a4e transparent;
+  scrollbar-color: #333 transparent;
 }
 
 *::-webkit-scrollbar {
@@ -42,7 +38,7 @@ body {
 }
 
 *::-webkit-scrollbar-thumb {
-  @apply bg-edge-strong rounded-full;
+  @apply rounded-full bg-white/20;
 }
 
 *::-webkit-scrollbar-track {
@@ -50,13 +46,13 @@ body {
 }
 
 @layer components {
-  /* Terminal control panel surface */
+  /* Terminal surface: true black, structure via ultra-faint white borders */
   .panel {
-    @apply rounded-lg border border-edge bg-base-panel shadow-panel;
+    @apply rounded-lg border border-white/10 bg-black;
   }
 
   .panel-title {
-    @apply flex items-center justify-between gap-2 border-b border-edge-subtle px-4 py-2.5
+    @apply flex items-center justify-between gap-2 border-b border-white/5 px-4 py-2.5
       text-[11px] font-semibold uppercase tracking-[0.08em] text-ink-soft;
   }
 
@@ -67,15 +63,15 @@ body {
   }
 
   .field-value {
-    @apply font-mono text-sm text-ink;
+    @apply font-mono text-sm text-white;
   }
 
   .input,
   .select,
   .select-native {
-    @apply w-full rounded-md border border-edge bg-base-elevated px-2.5 py-1.5
-      text-sm text-ink outline-none transition-colors
-      placeholder:text-ink-dim focus:border-accent-dim focus:ring-1 focus:ring-accent-dim/40;
+    @apply w-full rounded-md border border-white/10 bg-white/[0.03] px-2.5 py-1.5
+      text-sm text-white outline-none transition-colors
+      placeholder:text-ink-dim focus:border-white/40 focus:ring-1 focus:ring-white/20;
   }
 
   .input[type='number'] {
@@ -89,46 +85,45 @@ body {
     margin: 0;
   }
 
-  /* Buttons */
+  /* Secondary buttons */
   .btn {
     @apply inline-flex items-center justify-center gap-1.5 rounded-md border
-      border-edge bg-base-elevated px-3 py-1.5 text-sm font-medium text-ink-soft
-      transition-colors hover:border-edge-strong hover:bg-base-hover hover:text-ink
+      border-white/15 bg-black px-3 py-1.5 text-sm font-medium text-ink-soft
+      transition-colors hover:border-white/40 hover:bg-white/10 hover:text-white
       disabled:pointer-events-none disabled:opacity-40;
   }
 
+  /* Primary action: stark white 1px border; inverts on hover */
   .btn-primary {
-    @apply border border-accent-dim/60 bg-accent-dim/15 text-accent
-      hover:border-accent-glow hover:bg-accent-dim/25 hover:text-accent;
-    box-shadow: 0 0 0 1px rgba(76, 194, 255, 0.06) inset;
+    @apply rounded-md border border-white bg-black px-3 py-1.5 text-sm font-semibold
+      text-white transition-colors hover:bg-white hover:text-black
+      disabled:pointer-events-none disabled:opacity-40;
   }
 
   .btn-danger-ghost {
     @apply border-transparent bg-transparent text-ink-faint
-      hover:border-neg-dim/40 hover:bg-neg-dim/10 hover:text-neg;
+      hover:border-white/30 hover:bg-white/5 hover:text-neg;
   }
 
   /* Range sliders */
   .slider {
-    @apply h-1.5 w-full cursor-pointer appearance-none rounded-full bg-edge
-      accent-accent;
+    @apply h-1.5 w-full cursor-pointer appearance-none rounded-full bg-white/10
+      accent-white;
   }
 
   .slider::-webkit-slider-thumb {
     -webkit-appearance: none;
-    @apply h-3.5 w-3.5 rounded-full border border-accent/70 bg-base-elevated
-      shadow-accent-glow transition-transform hover:scale-110;
+    @apply h-3.5 w-3.5 rounded-full border border-white bg-black transition-transform hover:scale-110;
   }
 
   .slider::-moz-range-thumb {
-    @apply h-3.5 w-3.5 rounded-full border border-accent/70 bg-base-elevated
-      shadow-accent-glow;
+    @apply h-3.5 w-3.5 rounded-full border border-white bg-black;
   }
 
   /* Chips + misc */
   .chip {
-    @apply inline-flex items-center gap-1 rounded border border-edge-subtle
-      bg-base-elevated px-1.5 py-0.5 font-mono text-[11px] text-ink-soft;
+    @apply inline-flex items-center gap-1 rounded border border-white/10
+      bg-white/[0.03] px-1.5 py-0.5 font-mono text-[11px] text-ink-soft;
   }
 
   .tick-up {

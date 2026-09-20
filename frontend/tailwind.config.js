@@ -5,22 +5,22 @@ export default {
     extend: {
       colors: {
         base: {
-          DEFAULT: '#0b0e14',
-          deep: '#080a0f',
-          panel: '#0f131b',
-          elevated: '#161b26',
-          hover: '#1b2230',
+          DEFAULT: '#000000',
+          deep: '#000000',
+          panel: '#000000',
+          elevated: '#0d0d0d',
+          hover: '#0d0d0d',
         },
         edge: {
-          DEFAULT: '#232b3a',
-          subtle: '#1b2230',
-          strong: '#2e3a4e',
+          DEFAULT: 'rgba(255, 255, 255, 0.12)',
+          subtle: 'rgba(255, 255, 255, 0.05)',
+          strong: 'rgba(255, 255, 255, 0.22)',
         },
         ink: {
-          DEFAULT: '#dde4ee',
-          soft: '#9aa7ba',
-          faint: '#6d7a8f',
-          dim: '#5d6b80',
+          DEFAULT: '#ffffff',
+          soft: '#a3a3a3',
+          faint: '#808080',
+          dim: '#5e5e5e',
         },
         accent: {
           DEFAULT: '#4cc2ff',
@@ -71,11 +71,11 @@ export default {
         '4xl': ['32px', '1.2rem'],
       },
       boxShadow: {
-        panel: '0 1px 0 0 rgba(255,255,255,0.03) inset, 0 8px 24px -12px rgba(0,0,0,0.6)',
-        'accent-glow': '0 0 0 1px rgba(76,194,255,0.35), 0 4px 18px -6px rgba(76,194,255,0.35)',
+        panel: 'none',
+        'accent-glow': 'none',
       },
       borderColor: {
-        DEFAULT: '#232b3a',
+        DEFAULT: 'rgba(255, 255, 255, 0.12)',
       },
     },
   },
