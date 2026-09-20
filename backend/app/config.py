@@ -17,6 +17,12 @@ class Settings(BaseSettings):
     market_data_api_key: str = ""
     news_api_key: str = ""
 
+    # --- sentiment pipeline (Phase 5) ------------------------------------
+    sentiment_model: str = "ProsusAI/finbert"
+    sentiment_batch_size: int = 8
+    news_http_timeout: int = 15
+    news_max_items_per_feed: int = 20
+
     # --- scheduler (daily data refresh) -----------------------------------
     enable_scheduler: bool = True
     scheduler_timezone: str = "UTC"
