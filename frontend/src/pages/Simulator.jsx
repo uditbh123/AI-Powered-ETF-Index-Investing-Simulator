@@ -8,8 +8,17 @@ import {
   XAxis,
   YAxis,
 } from 'recharts'
+import {
+  Calculator,
+  Gauge,
+  Play,
+  Plus,
+  Trash,
+  TrendingDown,
+  TrendingUp,
+  Wallet,
+} from 'lucide-react'
 import { fetchJSON } from '../api'
-import './Simulator.css'
 
 const DEFAULT_HOLDINGS = [{ symbol: 'SPY', weight: 100 }]
 
@@ -19,6 +28,43 @@ function formatCurrency(value) {
     currency: 'USD',
     maximumFractionDigits: 0,
   })
+}
+
+function FieldSlider({ icon: Icon, label, value, min, max, step, onChange, render }) {
+  return (
+    <label className="block">
+      <span className="field-label">
+        <span className="flex items-center gap-1.5">
+          <Icon size={11} strokeWidth={1.8} />
+          {label}
+        </span>
+        <span className="field-value tabular-nums">{render(value)}</span>
+      </span>
+      <input
+        type="range"
+        className="slider"
+        min={min}
+        max={max}
+        step={step}
+        value={value}
+        onChange={onChange}
+      />
+    </label>
+  )
+}
+
+function ChartTooltip({ active, payload, label }) {
+  if (!active || !payload?.length) return null
+  return (
+    <div className="rounded-md border border-edge bg-base-panel px-3 py-2 shadow-panel">
+      <div className="text-[11px] text-ink-faint">
+        Year {Math.floor(label / 12)} · month {label % 12}
+      </div>
+      <div className="mt-0.5 font-mono text-sm text-accent tabular-nums">
+        {formatCurrency(payload[0].value)}
+      </div>
+    </div>
+  )
 }
 
 export default function Simulator() {
@@ -91,166 +137,227 @@ export default function Simulator() {
     value: Math.round(value),
   }))
 
+  const statCards = result
+    ? [
+        { icon: TrendingUp, label: 'Best case (95th)', value: result.summary.best_case_final_value, tone: 'tick-up' },
+        { icon: Gauge, label: 'Median outcome', value: result.summary.median_final_value, tone: 'text-accent' },
+        { icon: TrendingDown, label: 'Worst case (5th)', value: result.summary.worst_case_final_value, tone: 'tick-down' },
+      ]
+    : []
+
   return (
-    <section>
-      <h1>Simulator</h1>
-      <p>
-        Configure a hypothetical portfolio, then run a Monte Carlo simulation
-        to see its median growth trajectory.
-      </p>
+    <div className="space-y-4">
+      <div>
+        <h1 className="text-2xl font-semibold tracking-tight text-ink">Simulator</h1>
+        <p className="mt-1 text-sm text-ink-soft">
+          Configure a hypothetical portfolio and run a Monte Carlo simulation to
+          chart its median growth trajectory.
+        </p>
+      </div>
 
-      <form className="sim-form" onSubmit={runSimulation}>
-        <div className="sim-grid">
-          <label className="field">
-            <span>Portfolio name</span>
-            <input type="text" value={name} onChange={updateSetting(setName)} />
-          </label>
+      <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-[300px_minmax(0,1fr)]">
+        {/* ---- Control panel ---- */}
+        <aside className="panel">
+          <div className="panel-title">
+            <span>Controls</span>
+            {phase === 'running' && (
+              <span className="flex items-center gap-1 font-mono text-[10px] normal-case text-accent">
+                <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-accent" />
+                running
+              </span>
+            )}
+          </div>
 
-          <label className="field">
-            <span>Monthly contribution ($)</span>
-            <input
-              type="number"
-              min="0"
-              step="50"
-              value={contribution}
-              onChange={updateSetting(setContribution)}
-            />
-          </label>
+          <form className="space-y-5 p-4" onSubmit={runSimulation}>
+            <label className="block">
+              <span className="field-label">Portfolio name</span>
+              <input
+                type="text"
+                className="input"
+                value={name}
+                onChange={updateSetting(setName)}
+              />
+            </label>
 
-          <label className="field">
-            <span>Current balance ($)</span>
-            <input
-              type="number"
-              min="0"
-              step="500"
+            <FieldSlider
+              icon={Wallet}
+              label="Current balance"
               value={initialBalance}
+              min={0}
+              max={500000}
+              step={1000}
               onChange={updateSetting(setInitialBalance)}
+              render={(v) => formatCurrency(Number(v))}
             />
-          </label>
 
-          <label className="field">
-            <span>Investment horizon (years)</span>
-            <input
-              type="number"
-              min="1"
-              max="50"
+            <FieldSlider
+              icon={TrendingUp}
+              label="Monthly contribution"
+              value={contribution}
+              min={0}
+              max={2000}
+              step={25}
+              onChange={updateSetting(setContribution)}
+              render={(v) => `${v} /mo`}
+            />
+
+            <FieldSlider
+              icon={Gauge}
+              label="Investment horizon"
               value={horizonYears}
+              min={1}
+              max={50}
+              step={1}
               onChange={updateSetting(setHorizonYears)}
+              render={(v) => `${v} yr`}
             />
-          </label>
-        </div>
 
-        <fieldset className="holdings-fieldset">
-          <legend>Holdings</legend>
-          {holdings.map((holding, index) => (
-            <div className="holding-row" key={index}>
-              <label className="field inline">
-                <span>Ticker</span>
-                <select
-                  value={holding.symbol}
-                  onChange={(e) => updateHolding(index, 'symbol', e.target.value)}
-                >
-                  {tickers
-                    .filter((t) => t.price_rows > 0)
-                    .map((t) => (
-                      <option key={t.symbol} value={t.symbol}>
-                        {t.symbol} — {t.name}
-                      </option>
-                    ))}
-                </select>
-              </label>
-              <label className="field inline">
-                <span>Weight (%)</span>
-                <input
-                  type="number"
-                  min="0"
-                  step="1"
-                  value={holding.weight}
-                  onChange={(e) => updateHolding(index, 'weight', e.target.value)}
-                />
-              </label>
-              <button
-                type="button"
-                className="icon-btn"
-                onClick={() => removeHolding(index)}
-                disabled={holdings.length <= 1}
-                aria-label="Remove holding"
-              >
-                ✕
+            <div>
+              <span className="mb-1.5 block text-[11px] font-medium uppercase tracking-[0.06em] text-ink-faint">
+                Holdings
+              </span>
+              <div className="space-y-2">
+                {holdings.map((holding, index) => (
+                  <div key={index} className="flex items-center gap-1.5">
+                    <select
+                      className="select h-8 min-w-0 flex-1"
+                      value={holding.symbol}
+                      onChange={(e) => updateHolding(index, 'symbol', e.target.value)}
+                    >
+                      {tickers
+                        .filter((t) => t.price_rows > 0)
+                        .map((t) => (
+                          <option key={t.symbol} value={t.symbol}>
+                            {t.symbol} — {t.name}
+                          </option>
+                        ))}
+                    </select>
+                    <div className="flex h-8 w-16 items-center gap-0.5 rounded-md border border-edge bg-base-elevated px-1.5 focus-within:border-accent-dim">
+                      <input
+                        type="number"
+                        min="0"
+                        max="100"
+                        step="1"
+                        className="w-full bg-transparent text-right font-mono text-sm text-ink outline-none"
+                        value={holding.weight}
+                        onChange={(e) => updateHolding(index, 'weight', e.target.value)}
+                      />
+                      <span className="text-[11px] text-ink-faint">%</span>
+                    </div>
+                    <button
+                      type="button"
+                      className="btn btn-danger-ghost h-8 w-8 items-center justify-center p-0"
+                      onClick={() => removeHolding(index)}
+                      disabled={holdings.length <= 1}
+                      aria-label="Remove holding"
+                    >
+                      <Trash size={13} strokeWidth={1.8} />
+                    </button>
+                  </div>
+                ))}
+              </div>
+              <button type="button" className="btn mt-2 w-full" onClick={addHolding}>
+                <Plus size={13} strokeWidth={2} />
+                Add holding
               </button>
             </div>
-          ))}
-          <button type="button" className="add-btn" onClick={addHolding}>
-            + Add holding
-          </button>
-        </fieldset>
 
-        {error && <p className="form-error">Error: {error}</p>}
+            {error && <p className="text-xs text-neg">Error: {error}</p>}
 
-        <button type="submit" className="sim-btn" disabled={phase === 'running'}>
-          {phase === 'running' ? 'Simulating…' : 'Run simulation'}
-        </button>
-      </form>
+            <button
+              type="submit"
+              className="btn btn-primary w-full py-2"
+              disabled={phase === 'running'}
+            >
+              <Play size={14} strokeWidth={2} fill="currentColor" />
+              {phase === 'running' ? 'Simulating…' : 'Run simulation'}
+            </button>
+          </form>
+        </aside>
 
-      {result && (
-        <div className="results">
-          <div className="summary-card">
-            <div className="stat best">
-              <span className="stat-label">Best case (95th)</span>
-              <span className="stat-value">
-                {formatCurrency(result.summary.best_case_final_value)}
+        {/* ---- Chart area ---- */}
+        <section className="space-y-4">
+          {!result ? (
+            <div className="panel flex flex-col items-center justify-center gap-3 bg-base-panel px-6 py-20 text-center">
+              <span className="flex h-12 w-12 items-center justify-center rounded-full border border-edge bg-base-elevated text-ink-dim">
+                <Calculator size={20} strokeWidth={1.6} />
               </span>
+              <p className="text-sm text-ink-soft">
+                Adjust the controls and press{' '}
+                <span className="font-medium text-accent">Run simulation</span> to
+                chart the median growth trajectory.
+              </p>
             </div>
-            <div className="stat">
-              <span className="stat-label">Median outcome</span>
-              <span className="stat-value">
-                {formatCurrency(result.summary.median_final_value)}
-              </span>
-            </div>
-            <div className="stat worst">
-              <span className="stat-label">Worst case (5th)</span>
-              <span className="stat-value">
-                {formatCurrency(result.summary.worst_case_final_value)}
-              </span>
-            </div>
-          </div>
+          ) : (
+            <>
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+                {statCards.map(({ icon: Icon, label, value, tone }) => (
+                  <div key={label} className="panel flex items-center gap-3 px-4 py-3">
+                    <span
+                      className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-edge bg-base-elevated ${tone}`}
+                    >
+                      <Icon size={15} strokeWidth={1.8} />
+                    </span>
+                    <span className="min-w-0">
+                      <span className="block text-[11px] font-medium uppercase tracking-[0.06em] text-ink-faint">
+                        {label}
+                      </span>
+                      <span className="block truncate font-mono text-xl text-ink tabular-nums">
+                        {formatCurrency(value)}
+                      </span>
+                    </span>
+                  </div>
+                ))}
+              </div>
 
-          <div className="chart-card">
-            <h2>Median growth trajectory</h2>
-            <ResponsiveContainer width="100%" height={320}>
-              <LineChart data={chartData} margin={{ top: 8, right: 16, bottom: 8, left: 8 }}>
-                <CartesianGrid stroke="var(--border)" strokeDasharray="3 3" />
-                <XAxis
-                  dataKey="month"
-                  label={{ value: 'Months', position: 'insideBottomRight', offset: -4 }}
-                  tickFormatter={(m) => (m % 12 === 0 ? m / 12 : '')}
-                />
-                <YAxis
-                  tickFormatter={(v) => `${Math.round(v / 1000)}k`}
-                  width={56}
-                />
-                <Tooltip
-                  formatter={(value) => [formatCurrency(value), 'Portfolio value']}
-                  labelFormatter={(month) =>
-                    `Year ${Math.floor(month / 12)} · month ${month % 12}`
-                  }
-                />
-                <Line
-                  type="monotone"
-                  dataKey="value"
-                  stroke="var(--accent)"
-                  strokeWidth={2}
-                  dot={false}
-                />
-              </LineChart>
-            </ResponsiveContainer>
-          </div>
+              <div className="panel bg-base-panel">
+                <div className="panel-title">
+                  <span>Median growth trajectory</span>
+                  <span className="font-mono text-[10px] normal-case text-ink-faint">
+                    {horizonYears} yr · {formatCurrency(contribution)}/mo
+                  </span>
+                </div>
+                <div className="h-[380px] px-2 py-3">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <LineChart data={chartData} margin={{ top: 8, right: 16, bottom: 8, left: 8 }}>
+                      <CartesianGrid stroke="var(--chart-grid)" strokeDasharray="3 3" vertical={false} />
+                      <XAxis
+                        dataKey="month"
+                        tick={{ fill: 'var(--chart-axis)', fontSize: 11 }}
+                        tickLine={false}
+                        axisLine={{ stroke: 'var(--chart-grid)' }}
+                        tickFormatter={(m) => (m % 12 === 0 ? `${m / 12}y` : '')}
+                      />
+                      <YAxis
+                        tick={{ fill: 'var(--chart-axis)', fontSize: 11 }}
+                        tickFormatter={(v) => `${Math.round(v / 1000)}k`}
+                        tickLine={false}
+                        axisLine={false}
+                        width={48}
+                      />
+                      <Tooltip content={<ChartTooltip />} />
+                      <Line
+                        type="monotone"
+                        dataKey="value"
+                        stroke="var(--chart-line)"
+                        strokeWidth={2}
+                        dot={false}
+                        activeDot={{ r: 3, fill: 'var(--chart-line)', stroke: 'var(--chart-glow)' }}
+                      />
+                    </LineChart>
+                  </ResponsiveContainer>
+                </div>
+              </div>
 
-          {result.cached && (
-            <p className="cache-note">Loaded from cached simulation results.</p>
+              {result.cached && (
+                <p className="text-center text-[11px] text-ink-dim">
+                  Loaded from cached simulation results.
+                </p>
+              )}
+            </>
           )}
-        </div>
-      )}
-    </section>
+        </section>
+      </div>
+    </div>
   )
 }

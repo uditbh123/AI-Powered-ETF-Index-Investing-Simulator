@@ -1,51 +1,141 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Shared visual tokens (recharts + any runtime styling) */
 :root {
-  --text: #535353;
-  --text-h: #16161c;
-  --bg: #ffffff;
-  --border: #e5e4e8;
-  --accent: #2563eb;
-  --accent-bg: rgba(37, 99, 235, 0.1);
-  --accent-border: rgba(37, 99, 235, 0.5);
-
-  --sans: system-ui, 'Segoe UI', Roboto, sans-serif;
-  --heading: system-ui, 'Segoe UI', Roboto, sans-serif;
-
-  font: 18px/145% var(--sans);
-  color-scheme: light dark;
-  color: var(--text);
-  background: var(--bg);
-  font-synthesis: none;
-  text-rendering: optimizeLegibility;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
+  --chart-grid: #1f2734;
+  --chart-axis: #5d6b80;
+  --chart-line: #4cc2ff;
+  --chart-glow: rgba(76, 194, 255, 0.25);
+  --up: #16c98e;
+  --down: #ff5c6c;
+  color-scheme: dark;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --text: #9ca3af;
-    --text-h: #f3f4f6;
-    --bg: #16171d;
-    --border: #2e303a;
-    --accent: #93c5fd;
-    --accent-bg: rgba(147, 197, 253, 0.15);
-  }
+html,
+body {
+  height: 100%;
 }
 
 body {
-  margin: 0;
+  @apply bg-base-deep text-ink font-sans antialiased;
+  background-image:
+    radial-gradient(1200px 600px at 80% -10%, rgba(76, 194, 255, 0.06), transparent 60%),
+    radial-gradient(900px 500px at 0% 110%, rgba(22, 201, 142, 0.04), transparent 55%);
+  background-attachment: fixed;
 }
 
-h1,
-h2 {
-  font-family: var(--heading);
-  font-weight: 600;
-  color: var(--text-h);
+::selection {
+  @apply bg-accent-dim/40 text-accent;
 }
 
-p {
-  margin: 0 0 16px;
-}
-
+/* Slim, dark scrollbars */
 * {
-  box-sizing: border-box;
+  scrollbar-width: thin;
+  scrollbar-color: #2e3a4e transparent;
+}
+
+*::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+*::-webkit-scrollbar-thumb {
+  @apply bg-edge-strong rounded-full;
+}
+
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+@layer components {
+  /* Terminal control panel surface */
+  .panel {
+    @apply rounded-lg border border-edge bg-base-panel shadow-panel;
+  }
+
+  .panel-title {
+    @apply flex items-center justify-between gap-2 border-b border-edge-subtle px-4 py-2.5
+      text-[11px] font-semibold uppercase tracking-[0.08em] text-ink-soft;
+  }
+
+  /* Dense data fields */
+  .field-label {
+    @apply mb-1 flex items-center justify-between text-[11px] font-medium uppercase
+      tracking-[0.06em] text-ink-faint;
+  }
+
+  .field-value {
+    @apply font-mono text-sm text-ink;
+  }
+
+  .input,
+  .select,
+  .select-native {
+    @apply w-full rounded-md border border-edge bg-base-elevated px-2.5 py-1.5
+      text-sm text-ink outline-none transition-colors
+      placeholder:text-ink-dim focus:border-accent-dim focus:ring-1 focus:ring-accent-dim/40;
+  }
+
+  .input[type='number'] {
+    -moz-appearance: textfield;
+    appearance: textfield;
+  }
+
+  .input[type='number']::-webkit-outer-spin-button,
+  .input[type='number']::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+  }
+
+  /* Buttons */
+  .btn {
+    @apply inline-flex items-center justify-center gap-1.5 rounded-md border
+      border-edge bg-base-elevated px-3 py-1.5 text-sm font-medium text-ink-soft
+      transition-colors hover:border-edge-strong hover:bg-base-hover hover:text-ink
+      disabled:pointer-events-none disabled:opacity-40;
+  }
+
+  .btn-primary {
+    @apply border border-accent-dim/60 bg-accent-dim/15 text-accent
+      hover:border-accent-glow hover:bg-accent-dim/25 hover:text-accent;
+    box-shadow: 0 0 0 1px rgba(76, 194, 255, 0.06) inset;
+  }
+
+  .btn-danger-ghost {
+    @apply border-transparent bg-transparent text-ink-faint
+      hover:border-neg-dim/40 hover:bg-neg-dim/10 hover:text-neg;
+  }
+
+  /* Range sliders */
+  .slider {
+    @apply h-1.5 w-full cursor-pointer appearance-none rounded-full bg-edge
+      accent-accent;
+  }
+
+  .slider::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    @apply h-3.5 w-3.5 rounded-full border border-accent/70 bg-base-elevated
+      shadow-accent-glow transition-transform hover:scale-110;
+  }
+
+  .slider::-moz-range-thumb {
+    @apply h-3.5 w-3.5 rounded-full border border-accent/70 bg-base-elevated
+      shadow-accent-glow;
+  }
+
+  /* Chips + misc */
+  .chip {
+    @apply inline-flex items-center gap-1 rounded border border-edge-subtle
+      bg-base-elevated px-1.5 py-0.5 font-mono text-[11px] text-ink-soft;
+  }
+
+  .tick-up {
+    @apply text-pos;
+  }
+
+  .tick-down {
+    @apply text-neg;
+  }
 }

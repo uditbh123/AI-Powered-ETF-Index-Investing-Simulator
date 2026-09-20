@@ -1,35 +1,31 @@
-import { NavLink, Route, Routes } from 'react-router-dom'
+import { Route, Routes } from 'react-router-dom'
+import Sidebar from './components/Sidebar'
 import DisclaimerBanner from './components/DisclaimerBanner'
 import Home from './pages/Home'
 import Simulator from './pages/Simulator'
 import Tickers from './pages/Tickers'
-import './App.css'
 
 function App() {
   return (
-    <div className="app">
-      <DisclaimerBanner />
-      <header className="app-header">
-        <span className="app-title">ETF Investing Simulator</span>
-        <nav className="app-nav">
-          <NavLink to="/">Home</NavLink>
-          <NavLink to="/tickers">Tickers</NavLink>
-          <NavLink to="/simulator">Simulator</NavLink>
-        </nav>
-      </header>
+    <div className="flex h-screen overflow-hidden bg-base">
+      <Sidebar />
 
-      <main className="app-main">
-        <Routes>
-          <Route path="/" element={<Home />} />
-          <Route path="/tickers" element={<Tickers />} />
-          <Route path="/simulator" element={<Simulator />} />
-          <Route path="*" element={<Home />} />
-        </Routes>
-      </main>
+      <div className="flex min-w-0 flex-1 flex-col">
+        <header className="shrink-0 border-b border-edge bg-base-panel">
+          <DisclaimerBanner />
+        </header>
 
-      <footer className="app-footer">
-        Educational simulator for studying long-term ETF and index investing.
-      </footer>
+        <main className="flex-1 overflow-y-auto">
+          <div className="mx-auto max-w-7xl px-6 py-5">
+            <Routes>
+              <Route path="/" element={<Home />} />
+              <Route path="/tickers" element={<Tickers />} />
+              <Route path="/simulator" element={<Simulator />} />
+              <Route path="*" element={<Home />} />
+            </Routes>
+          </div>
+        </main>
+      </div>
     </div>
   )
 }
