@@ -1,0 +1,30 @@
+.ticker-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 15px;
+}
+
+.ticker-table th,
+.ticker-table td {
+  text-align: left;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.ticker-table th {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.ticker-table tr:hover td {
+  background: var(--accent-bg);
+}
+
+.ticker-table .num {
+  text-align: right;
+}
+
+.mono {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
