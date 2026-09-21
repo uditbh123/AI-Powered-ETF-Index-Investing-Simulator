@@ -2,14 +2,18 @@ import {
   ChartColumn,
   ChartLine,
   ChartCandlestick,
+  Lightbulb,
+  Newspaper,
   Settings,
 } from 'lucide-react'
 import { NavLink } from 'react-router-dom'
 
 const NAV_ITEMS = [
   { to: '/', label: 'Home', icon: ChartColumn, end: true },
-  { to: '/tickers', label: 'Tickers', icon: ChartCandlestick },
+  { to: '/etfs', label: 'ETFs', icon: ChartCandlestick },
   { to: '/simulator', label: 'Simulator', icon: ChartLine },
+  { to: '/news', label: 'Financial News', icon: Newspaper },
+  { to: '/strategies', label: 'Investing Strategies', icon: Lightbulb },
 ]
 
 function linkClass(isActive) {
@@ -49,7 +53,7 @@ export default function Sidebar() {
 
       <div className="flex items-center gap-2 border-t border-white/5 px-4 py-3 text-[10px] text-ink-dim">
         <Settings size={12} strokeWidth={1.8} />
-        <span>Phase 4.6 · true black</span>
+        <span>Phase 4.7 · dashboard</span>
       </div>
     </aside>
   )

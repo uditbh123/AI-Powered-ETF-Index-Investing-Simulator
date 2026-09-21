@@ -30,6 +30,19 @@ class TickerOut(BaseModel):
     last_date: str | None
 
 
+class PricePoint(BaseModel):
+    date: str
+    close: float
+    volume: int | None
+
+
+class TickerPricesOut(BaseModel):
+    symbol: str
+    name: str | None
+    sector: str | None
+    prices: list[PricePoint]
+
+
 class PortfolioOut(BaseModel):
     id: int
     name: str
@@ -49,6 +62,8 @@ __all__ = [
     "HoldingIn",
     "PortfolioCreate",
     "TickerOut",
+    "PricePoint",
+    "TickerPricesOut",
     "PortfolioOut",
     "SimulationRequest",
 ]

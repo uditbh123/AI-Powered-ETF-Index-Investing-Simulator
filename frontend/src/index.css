@@ -134,3 +134,27 @@ body {
     @apply text-neg;
   }
 }
+
+/* Disclaimer marquee: ultra-thin, muted, true black */
+@keyframes disclaimer-scroll {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(-50%);
+  }
+}
+
+.disclaimer-track {
+  animation: disclaimer-scroll 60s linear infinite;
+}
+
+.disclaimer:hover .disclaimer-track {
+  animation-play-state: paused;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .disclaimer-track {
+    animation: none;
+  }
+}

@@ -82,6 +82,28 @@ def test_list_tickers(client):
     assert spy["last_date"]
 
 
+def test_get_ticker_prices_returns_history(client):
+    response = client.get("/tickers/SPY/prices")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["symbol"] == "SPY"
+    assert len(body["prices"]) == MONTHS
+    assert body["prices"][0]["date"] < body["prices"][-1]["date"]
+    assert body["prices"][-1]["close"] > body["prices"][0]["close"]
+
+
+def test_get_ticker_prices_limit_returns_most_recent(client):
+    response = client.get("/tickers/SPY/prices", params={"limit": 5})
+    assert response.status_code == 200
+    prices = response.json()["prices"]
+    assert len(prices) == 5
+    assert prices == sorted(prices, key=lambda p: p["date"])
+
+
+def test_get_ticker_prices_unknown_symbol_returns_404(client):
+    assert client.get("/tickers/NOPE/prices").status_code == 404
+
+
 # ---------------------------------------------------------------------------
 # Portfolios
 # ---------------------------------------------------------------------------

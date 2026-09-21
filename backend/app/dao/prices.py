@@ -30,8 +30,13 @@ def get_price_history(
     ticker_id: int,
     start: str | None = None,
     end: str | None = None,
+    limit: int | None = None,
 ) -> list[sqlite3.Row]:
-    """Return (date, close, volume) rows ordered by date, optionally filtered."""
+    """Return (date, close, volume) rows ordered by date, optionally filtered.
+
+    When ``limit`` is set, the most recent ``limit`` rows are returned, still in
+    ascending date order (useful for sparklines and latest-price lookups).
+    """
     query = (
         "SELECT date, close, volume FROM prices "
         "WHERE ticker_id = ?"
@@ -43,6 +48,10 @@ def get_price_history(
     if end is not None:
         query += " AND date <= ?"
         params.append(end)
+    if limit is not None:
+        query += " ORDER BY date DESC LIMIT ?"
+        params.append(limit)
+        return list(reversed(conn.execute(query, params).fetchall()))
     query += " ORDER BY date"
     return conn.execute(query, params).fetchall()
 

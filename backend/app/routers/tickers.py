@@ -3,12 +3,12 @@ from __future__ import annotations
 
 import sqlite3
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException, Query
 
 from ..dao import prices as price_dao
 from ..dao import tickers as ticker_dao
 from ..deps import get_db
-from ..schemas import TickerOut
+from ..schemas import PricePoint, TickerOut, TickerPricesOut
 
 router = APIRouter(tags=["tickers"])
 
@@ -34,3 +34,30 @@ def list_tickers(conn: sqlite3.Connection = Depends(get_db)) -> list[TickerOut]:
             )
         )
     return out
+
+
+@router.get("/tickers/{symbol}/prices", response_model=TickerPricesOut)
+def get_ticker_prices(
+    symbol: str,
+    start: str | None = None,
+    end: str | None = None,
+    limit: int | None = Query(default=None, ge=1, le=10_000),
+    conn: sqlite3.Connection = Depends(get_db),
+) -> TickerPricesOut:
+    """Historical daily closes for one ticker, ordered oldest -> newest."""
+    ticker = ticker_dao.get_ticker(conn, symbol.upper())
+    if ticker is None:
+        raise HTTPException(status_code=404, detail=f"ticker '{symbol}' not found")
+
+    rows = price_dao.get_price_history(
+        conn, ticker["id"], start=start, end=end, limit=limit
+    )
+    return TickerPricesOut(
+        symbol=ticker["symbol"],
+        name=ticker["name"],
+        sector=ticker["sector"],
+        prices=[
+            PricePoint(date=row["date"], close=row["close"], volume=row["volume"])
+            for row in rows
+        ],
+    )

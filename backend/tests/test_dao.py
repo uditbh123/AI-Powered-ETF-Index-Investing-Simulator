@@ -57,6 +57,9 @@ def test_get_price_history_range_and_order(db):
     subset = price_dao.get_price_history(db, ticker["id"], start="2024-01-03")
     assert [r["date"] for r in subset] == ["2024-01-03", "2024-01-04"]
 
+    recent = price_dao.get_price_history(db, ticker["id"], limit=2)
+    assert [r["date"] for r in recent] == ["2024-01-03", "2024-01-04"]
+
 
 def test_count_prices(db):
     ticker = ticker_dao.get_or_create_ticker(db, "GLD")

@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { ChartCandlestick } from 'lucide-react'
 import { fetchJSON } from '../api'
 
-export default function Tickers() {
+export default function Etfs() {
   const [tickers, setTickers] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
@@ -19,7 +19,7 @@ export default function Tickers() {
       <div className="flex items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight text-ink">
-            Ticker catalog
+            ETF catalog
           </h1>
           <p className="mt-1 text-sm text-ink-soft">
             Instruments tracked by the simulator with local price-history
