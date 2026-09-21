@@ -103,6 +103,7 @@ def _assemble_response(
 ) -> dict[str, Any]:
     finals = [path[-1] for path in trajectories]
     multiplier = float(params.get("volatility_multiplier", 1.0))
+    final_by_level = dict(zip(levels, finals))
     return {
         "run_id": run_id,
         "portfolio_id": portfolio_id,
@@ -119,9 +120,9 @@ def _assemble_response(
             for level, path in zip(levels, trajectories, strict=True)
         ],
         "summary": {
-            "worst_case_final_value": finals[0],
-            "median_final_value": finals[len(finals) // 2],
-            "best_case_final_value": finals[-1],
+            "worst_case_final_value": final_by_level[min(levels)],
+            "median_final_value": final_by_level.get(50.0, finals[len(finals) // 2]),
+            "best_case_final_value": final_by_level[max(levels)],
         },
     }
 
