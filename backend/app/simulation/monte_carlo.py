@@ -12,6 +12,8 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
+from operator import inv
+from operator import inv
 from typing import Sequence
 
 import numpy as np
@@ -161,7 +163,11 @@ def simulate_paths(
     drawn = _draw_returns(rng, returns, n_simulations, horizon_months, blocks)
 
     growth = np.cumprod(1.0 + drawn, axis=1)
-    inverse_sum = np.cumsum(1.0 / growth, axis=1)
+    inv = 1.0 / growth
+    # start-of-period contributions: contribution in period k grows from period k,
+    # so it needs 1/growth[k-1] with growth[0] := 1 (shift right by one column)
+    inv_shifted = np.concatenate([np.ones((inv.shape[0], 1)), inv[:, :-1]], axis=1)
+    inverse_sum = np.cumsum(inv_shifted, axis=1)
     values = growth * (float(initial_balance) + float(monthly_contribution) * inverse_sum)
 
     start = np.full((n_simulations, 1), float(initial_balance))
