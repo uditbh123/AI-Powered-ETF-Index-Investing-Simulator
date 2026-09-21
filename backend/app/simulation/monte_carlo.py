@@ -24,14 +24,16 @@ DEFAULT_PERCENTILES = (10, 50, 90)
 # --- Sentiment -> volatility mapping ---------------------------------------
 # FinBERT scores live in [-1, 1]. We scale the *dispersion* of the bootstrap
 # returns about their mean: multiplier > 1 widens the simulated distribution
-# (more risk), < 1 narrows it. The response is asymmetric because negative
-# news / uncertainty moves markets harder than positive news calms them, so a
-# bad score amplifies volatility more than a good score dampens it.
-# With the defaults: score = -1 -> 1.75x vol, score = +1 -> 0.75x vol.
-NEGATIVE_SENTIMENT_SENSITIVITY = 0.75
-POSITIVE_SENTIMENT_SENSITIVITY = 0.25
-MIN_VOLATILITY_MULTIPLIER = 0.5
-MAX_VOLATILITY_MULTIPLIER = 2.0
+# (more risk), < 1 narrows it. The band is deliberately narrow (score -1 ->
+# 1.10x vol, score +1 -> 0.95x vol) because the sentiment->volatility
+# correlation in our validation was weak (docs/sentiment_validation.md):
+# sentiment is mostly noise, so we act only lightly on it. The asymmetry is
+# retained because negative news / uncertainty moves markets harder than
+# positive news calms them (leverage effect, Black 1976).
+NEGATIVE_SENTIMENT_SENSITIVITY = 0.10
+POSITIVE_SENTIMENT_SENSITIVITY = 0.05
+MIN_VOLATILITY_MULTIPLIER = 0.9
+MAX_VOLATILITY_MULTIPLIER = 1.1
 
 
 def returns_from_prices(prices: Sequence[float]) -> np.ndarray:
@@ -61,7 +63,7 @@ def volatility_multiplier_from_sentiment(
 
     so it is exactly 1 (no adjustment) at neutral sentiment, rises above 1 as
     sentiment turns negative (wider simulated paths) and dips below 1 as it
-    turns positive. The result is clipped to [0.5, 2.0] so one noisy headline
+    turns positive. The result is clipped to [0.9, 1.1] so one noisy headline
     batch can never produce a degenerate (near-zero variance) or explosive
     distribution. Non-finite input is treated as neutral.
     """

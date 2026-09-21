@@ -283,19 +283,20 @@ def test_simulate_portfolio_with_unavailable_ticker_returns_400(client):
 
 def test_negative_sentiment_widens_the_fan_chart(client):
     pid = _create_portfolio(client).json()["id"]
-    payload = {"initial_balance": 10_000, "horizon_months": 24, "n_simulations": 500, "seed": 5}
+    payload = {"initial_balance": 10_000, "horizon_months": 60, "n_simulations": 2000, "seed": 5}
 
     baseline = client.post(f"/portfolios/{pid}/simulate", json=payload).json()
 
-    _seed_sentiment("SPY", -0.9, category="sector")
+    _seed_sentiment("SPY", -1.0, category="sector")
+    _seed_sentiment("QQQ", -1.0, category="sector")
     adjusted = client.post(
         f"/portfolios/{pid}/simulate", json={**payload, "use_sentiment": True}
     ).json()
 
     assert adjusted["cached"] is False
     assert adjusted["sentiment"]["applied"] is True
-    assert adjusted["sentiment"]["score"] == pytest.approx(-0.9)
-    assert adjusted["sentiment"]["volatility_multiplier"] > 1.0
+    assert adjusted["sentiment"]["score"] == pytest.approx(-1.0)
+    assert adjusted["sentiment"]["volatility_multiplier"] == pytest.approx(1.10)
 
     def final_spread(body):
         worst = next(p for p in body["percentiles"] if p["level"] == 10)["path"][-1]
@@ -324,7 +325,7 @@ def test_positive_sentiment_narrows_volatility(client):
         f"/portfolios/{pid}/simulate",
         json={"initial_balance": 5000, "horizon_months": 12, "n_simulations": 200, "use_sentiment": True},
     ).json()
-    assert body["sentiment"]["volatility_multiplier"] == pytest.approx(0.75)
+    assert body["sentiment"]["volatility_multiplier"] == pytest.approx(0.95)
 
 
 def test_sentiment_flag_without_news_falls_back_to_neutral(client):

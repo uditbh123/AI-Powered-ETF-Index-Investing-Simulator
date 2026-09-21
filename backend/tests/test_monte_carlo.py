@@ -181,16 +181,16 @@ def test_run_simulation_returns_percentile_trajectories(synthetic_returns):
 
 def test_sentiment_multiplier_is_asymmetric_around_neutral():
     assert volatility_multiplier_from_sentiment(0.0) == pytest.approx(1.0)
-    assert volatility_multiplier_from_sentiment(-1.0) == pytest.approx(1.75)
-    assert volatility_multiplier_from_sentiment(1.0) == pytest.approx(0.75)
+    assert volatility_multiplier_from_sentiment(-1.0) == pytest.approx(1.10)
+    assert volatility_multiplier_from_sentiment(1.0) == pytest.approx(0.95)
     # Negative news widens more than equivalent positive news narrows.
     assert volatility_multiplier_from_sentiment(-0.5) - 1.0 > 1.0 - volatility_multiplier_from_sentiment(0.5)
 
 
 def test_sentiment_multiplier_is_clipped_and_handles_nan():
     # Out-of-range scores are clamped to [-1, 1] before the mapping.
-    assert volatility_multiplier_from_sentiment(-5.0) == pytest.approx(1.75)
-    assert volatility_multiplier_from_sentiment(5.0) == pytest.approx(0.75)
+    assert volatility_multiplier_from_sentiment(-5.0) == pytest.approx(1.10)
+    assert volatility_multiplier_from_sentiment(5.0) == pytest.approx(0.95)
     # Extreme sensitivities are still bounded by the hard safety clip.
     assert volatility_multiplier_from_sentiment(
         -1.0, negative_sensitivity=5.0
