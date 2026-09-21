@@ -195,13 +195,13 @@ class ValidationReport:
 
     historical_mean: float
     historical_std: float
-    historical_geometric_mean: float
+    historical_geometric_mean: float | None
     simulated_mean: float
     simulated_std: float
     simulated_geometric_mean: float
     mean_match: bool
     std_match: bool
-    geometric_mean_match: bool
+    geometric_mean_match: bool | None
     tolerance: float
 
     def as_dict(self) -> dict:
@@ -257,23 +257,28 @@ def validate_bootstrap(
     sim_std = float(np.std(per_period, ddof=1))
 
     sim_geom = np.exp(np.mean(np.log(periods_path[:, -1])) / horizon_months) - 1.0
-    hist_geom = hist_geom_mean if hist_geom_mean is not None else sim_geom
 
     def _within_sim(a: float, b: float) -> bool:
         if a == 0.0 and b == 0.0:
             return True
         return abs(a - b) <= tolerance * max(abs(a), abs(b))
 
+    # If the historical geometric mean is undefined (some return <= -1), do not
+    # fabricate a match: report None instead of comparing sim against itself.
+    geometric_mean_match = (
+        _within_sim(hist_geom_mean, sim_geom) if hist_geom_mean is not None else None
+    )
+
     return ValidationReport(
         historical_mean=hist_arith_mean,
         historical_std=hist_std,
-        historical_geometric_mean=float(hist_geom),
+        historical_geometric_mean=hist_geom_mean,
         simulated_mean=sim_mean,
         simulated_std=sim_std,
         simulated_geometric_mean=float(sim_geom),
         mean_match=_within_sim(hist_arith_mean, sim_mean),
         std_match=_within_sim(hist_std, sim_std),
-        geometric_mean_match=_within_sim(hist_geom, sim_geom),
+        geometric_mean_match=geometric_mean_match,
         tolerance=tolerance,
     )
 

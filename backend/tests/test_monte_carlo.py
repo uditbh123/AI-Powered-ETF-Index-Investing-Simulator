@@ -141,6 +141,13 @@ def test_validation_rejects_bad_tolerance():
         validate_bootstrap([0.01] * 24, tolerance=1.5)
 
 
+def test_geometric_mean_undefined_yields_none_match():
+    report = validate_bootstrap([0.01] * 23 + [-1.0], n_simulations=100, seed=3)
+    assert report.historical_geometric_mean is None
+    assert report.geometric_mean_match is None
+    assert report.as_dict()["geometric_mean_match"] is None
+
+
 # ---------------------------------------------------------------------------
 # Percentiles and the high-level entry point
 # ---------------------------------------------------------------------------
