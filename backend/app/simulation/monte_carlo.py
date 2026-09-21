@@ -180,8 +180,8 @@ def path_percentiles(
 ) -> np.ndarray:
     """Return percentile trajectories of shape (len(levels), n_steps).
 
-    With default levels this gives the best-case (95th), median (50th) and
-    worst-case (5th) growth trajectories used for fan charts.
+    With default levels this gives the best-case (90th), median (50th) and
+    worst-case (10th) growth trajectories used for fan charts.
     """
     paths = np.asarray(paths, dtype=float)
     if paths.ndim != 2:

@@ -52,7 +52,7 @@ CREATE TABLE IF NOT EXISTS simulation_runs (
 CREATE TABLE IF NOT EXISTS simulation_results (
     id         INTEGER PRIMARY KEY AUTOINCREMENT,
     run_id     INTEGER NOT NULL REFERENCES simulation_runs(id),
-    percentile REAL    NOT NULL,                  -- e.g. 5, 50, 95
+    percentile REAL    NOT NULL,                  -- e.g. 10, 50, 90
     path_json  TEXT    NOT NULL                   -- serialized trajectory
 );
 
