@@ -4,7 +4,9 @@ An educational web application that simulates long-term ETF and index
 investing strategies using historical market data, Monte Carlo simulation,
 and financial/geopolitical news sentiment analysis. See
 [PROJECT.md](PROJECT.md) for the full project spec, architecture decisions,
-and phase plan.
+and phase plan, [docs/sentiment_validation.md](docs/sentiment_validation.md)
+for the sentiment-signal validation results, and
+[docs/ai_usage_log.md](docs/ai_usage_log.md) for the AI-assisted change log.
 
 > **Educational simulator only.** This project does not provide financial
 > advice. Simulated results are hypothetical and not a guarantee of future
@@ -15,6 +17,7 @@ and phase plan.
 ```
 backend/   FastAPI application, SQLite schema, DAO layer (Phases 0-3, 5-7)
 frontend/  React (Vite) single-page app, routing, disclaimer banner (Phases 0, 4, 6, 8)
+docs/      Sentiment-signal validation findings and the AI usage log
 ```
 
 ## Prerequisites
@@ -42,8 +45,13 @@ uvicorn app.main:app --reload
 - Health check: http://127.0.0.1:8000/health
 
 On startup the app creates the SQLite database (`backend/simulator.db`) by
-applying `backend/schema.sql`. The schema is idempotent (`CREATE TABLE IF NOT
-EXISTS`), so restarting is safe.
+applying `backend/schema.sql` — unconditionally and idempotently
+(`CREATE TABLE/INDEX IF NOT EXISTS`), so it is safe to run against an
+existing database and restarting is safe. The schema includes indexes for
+price lookups, simulation runs/results, and news sentiment (ticker+date and
+category+date). Every DB connection applies `PRAGMA journal_mode=WAL`,
+`PRAGMA busy_timeout=5000`, and `PRAGMA foreign_keys=ON` (these are
+per-connection settings, not persisted by `schema.sql`).
 
 ## Market data ingestion (Phase 1)
 
@@ -73,7 +81,7 @@ dev server exposes these via the `/api` prefix (e.g. `/api/tickers`).
 | POST | `/portfolios` | Create a config: name, monthly contribution, holdings (symbol + weight) |
 | GET | `/portfolios` | List portfolios |
 | GET | `/portfolios/{id}` | Portfolio detail with holdings |
-| POST | `/portfolios/{id}/simulate` | Run a Monte Carlo simulation; params: `initial_balance`, `horizon_months`, `n_simulations`, optional `seed`/`blocks` |
+| POST | `/portfolios/{id}/simulate` | Run a Monte Carlo simulation; params: `initial_balance`, `horizon_months`, `n_simulations`, optional `seed`/`blocks`, optional `use_sentiment` |
 | GET | `/simulation-runs/{id}` | Fetch a cached run's results |
 
 `POST .../simulate` caches identical parameter sets in SQLite
@@ -83,12 +91,37 @@ same `run_id`. Daily closes are resampled to monthly returns per holding,
 combined with normalized weights into a portfolio return series, and fed to
 the Phase 2 engine.
 
+## Sentiment-adjusted simulation (Phase 5-6)
+
+When `use_sentiment: true` is passed to `POST /portfolios/{id}/simulate`, the
+service aggregates recent FinBERT-scored headlines (category `sector` or
+`geopolitical`) into a sentiment score in `[-1, 1]` and maps it to a
+volatility multiplier applied to the bootstrap return dispersion:
+
+| Score | Volatility multiplier |
+|---|---|
+| -1.0 (very negative) | 1.10x (wider fan) |
+| 0.0 (neutral) | 1.0x (no adjustment) |
+| +1.0 (very positive) | 0.95x (narrower fan) |
+
+The band is deliberately narrow — our validation (see
+[docs/sentiment_validation.md](docs/sentiment_validation.md)) showed the
+sentiment-to-volatility correlation is weak / mostly noise — while the
+negative-vs-positive asymmetry is retained (leverage effect, Black 1976). The
+response's `sentiment` block reports `applied`, the raw `score`, and the
+`volatility_multiplier` so the UI can distinguish "adjusted" from
+"neutral/absent". Sentiment runs are cached under a key that includes the
+aggregate score, so fresh news never serves a stale run.
+
 ## Backend tests
 
 The simulation engine (Phase 2) is a pure, API-independent module validated
-against analytically solvable baselines. The DAO and ingestion layers
+against analytically solvable baselines (including the start-of-period
+contribution-timing closed form, volatility drag, and bootstrap matching) plus
+schema/database-connection integrity checks. The DAO and ingestion layers
 (Phase 1) are tested against a temp SQLite file with mocked fetch output, so
-tests never touch the network. Run everything from `backend/`:
+tests never touch the network. The current suite is 100+ tests run from
+`backend/`:
 
 ```bash
 cd backend
