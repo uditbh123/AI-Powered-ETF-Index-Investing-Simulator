@@ -71,3 +71,5 @@ CREATE INDEX IF NOT EXISTS idx_portfolio_holdings_port   ON portfolio_holdings (
 CREATE INDEX IF NOT EXISTS idx_sim_runs_portfolio        ON simulation_runs (portfolio_id);
 CREATE INDEX IF NOT EXISTS idx_sim_results_run           ON simulation_results (run_id);
 CREATE INDEX IF NOT EXISTS idx_news_ticker_published     ON news_sentiment (ticker_id_or_null, published_at);
+CREATE INDEX IF NOT EXISTS idx_news_category_published
+    ON news_sentiment (category, published_at);

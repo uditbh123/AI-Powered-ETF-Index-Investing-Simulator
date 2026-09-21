@@ -40,3 +40,11 @@ def test_news_ticker_published_index_exists(tmp_path):
         assert "idx_news_ticker_published" in _index_names(conn)
     finally:
         conn.close()
+
+
+def test_news_category_published_index_exists(tmp_path):
+    conn = _exec_schema(str(tmp_path / "schema.db"))
+    try:
+        assert "idx_news_category_published" in _index_names(conn)
+    finally:
+        conn.close()
