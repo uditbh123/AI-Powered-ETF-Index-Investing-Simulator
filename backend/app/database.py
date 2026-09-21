@@ -26,6 +26,10 @@ def get_connection() -> sqlite3.Connection:
     db_path.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
+    # PRAGMAs are per-connection; the ones in schema.sql do NOT persist across
+    # connections, so apply them here on every new connection.
+    conn.execute("PRAGMA journal_mode = WAL")
+    conn.execute("PRAGMA busy_timeout = 5000")
     conn.execute("PRAGMA foreign_keys = ON")
     return conn
 
