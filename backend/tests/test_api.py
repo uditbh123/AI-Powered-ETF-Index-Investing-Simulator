@@ -4,12 +4,14 @@ Uses a temp SQLite file and synthetic monthly close data inserted directly via
 the DAO layer (no network). Scheduler is disabled for these tests.
 """
 import sqlite3
+from datetime import date
 
 import pandas as pd
 import pytest
 from fastapi.testclient import TestClient
 
 from app.config import settings
+from app.dao import news as news_dao
 from app.dao import prices as price_dao
 from app.dao import tickers as ticker_dao
 from app.database import init_db
@@ -64,6 +66,30 @@ def _create_portfolio(client: TestClient, **overrides) -> dict:
     }
     payload.update(overrides)
     return client.post("/portfolios", json=payload)
+
+
+def _seed_sentiment(symbol: str, score: float, category: str = "sector") -> None:
+    """Insert one recent scored headline for a ticker (or macro when symbol None)."""
+    conn = sqlite3.connect(settings.database_url[10:])
+    conn.row_factory = sqlite3.Row
+    ticker_id = None
+    if symbol is not None:
+        ticker_id = ticker_dao.get_ticker(conn, symbol)["id"]
+    news_dao.insert_sentiment(
+        conn,
+        [
+            (
+                ticker_id,
+                f"{symbol or 'macro'} headline {score}",
+                "test-src",
+                date.today().isoformat(),
+                score,
+                category,
+            )
+        ],
+    )
+    conn.commit()
+    conn.close()
 
 
 # ---------------------------------------------------------------------------
@@ -162,11 +188,16 @@ def test_trigger_simulation_returns_fan_chart(client):
     assert body["params"]["horizon_months"] == 12
     assert len(body["percentiles"]) == 3
     levels = [p["level"] for p in body["percentiles"]]
-    assert levels == [5, 50, 95]
+    assert levels == [10, 50, 90]
     for band in body["percentiles"]:
         assert len(band["path"]) == 13  # horizon + initial balance
         assert all(v > 0 for v in band["path"])
     assert body["summary"]["median_final_value"] > 0
+    assert body["sentiment"] == {
+        "applied": False,
+        "score": None,
+        "volatility_multiplier": 1.0,
+    }
 
 
 def test_simulation_reuses_cached_run_with_identical_params(client):
@@ -244,3 +275,76 @@ def test_simulate_portfolio_with_unavailable_ticker_returns_400(client):
     )
     assert resp.status_code == 400
     assert "GLD" in resp.json()["detail"]
+
+
+# ---------------------------------------------------------------------------
+# Sentiment-adjusted simulation (Phase 6)
+# ---------------------------------------------------------------------------
+
+def test_negative_sentiment_widens_the_fan_chart(client):
+    pid = _create_portfolio(client).json()["id"]
+    payload = {"initial_balance": 10_000, "horizon_months": 24, "n_simulations": 500, "seed": 5}
+
+    baseline = client.post(f"/portfolios/{pid}/simulate", json=payload).json()
+
+    _seed_sentiment("SPY", -0.9, category="sector")
+    adjusted = client.post(
+        f"/portfolios/{pid}/simulate", json={**payload, "use_sentiment": True}
+    ).json()
+
+    assert adjusted["cached"] is False
+    assert adjusted["sentiment"]["applied"] is True
+    assert adjusted["sentiment"]["score"] == pytest.approx(-0.9)
+    assert adjusted["sentiment"]["volatility_multiplier"] > 1.0
+
+    def final_spread(body):
+        worst = next(p for p in body["percentiles"] if p["level"] == 10)["path"][-1]
+        best = next(p for p in body["percentiles"] if p["level"] == 90)["path"][-1]
+        return best - worst
+
+    assert final_spread(adjusted) > final_spread(baseline)
+
+
+def test_geopolitical_sentiment_also_adjusts_volatility(client):
+    pid = _create_portfolio(client).json()["id"]
+    _seed_sentiment(None, -0.8, category="geopolitical")
+    body = client.post(
+        f"/portfolios/{pid}/simulate",
+        json={"initial_balance": 5000, "horizon_months": 12, "n_simulations": 200, "use_sentiment": True},
+    ).json()
+    assert body["sentiment"]["applied"] is True
+    assert body["sentiment"]["score"] == pytest.approx(-0.8)
+    assert body["sentiment"]["volatility_multiplier"] > 1.0
+
+
+def test_positive_sentiment_narrows_volatility(client):
+    pid = _create_portfolio(client).json()["id"]
+    _seed_sentiment("SPY", 1.0, category="sector")
+    body = client.post(
+        f"/portfolios/{pid}/simulate",
+        json={"initial_balance": 5000, "horizon_months": 12, "n_simulations": 200, "use_sentiment": True},
+    ).json()
+    assert body["sentiment"]["volatility_multiplier"] == pytest.approx(0.75)
+
+
+def test_sentiment_flag_without_news_falls_back_to_neutral(client):
+    pid = _create_portfolio(client).json()["id"]
+    body = client.post(
+        f"/portfolios/{pid}/simulate",
+        json={"initial_balance": 5000, "horizon_months": 12, "n_simulations": 150, "use_sentiment": True},
+    ).json()
+    assert body["sentiment"] == {
+        "applied": False,
+        "score": None,
+        "volatility_multiplier": 1.0,
+    }
+
+
+def test_sentiment_flag_changes_the_cache_key(client):
+    pid = _create_portfolio(client).json()["id"]
+    payload = {"initial_balance": 5000, "horizon_months": 12, "n_simulations": 150, "seed": 1}
+    plain = client.post(f"/portfolios/{pid}/simulate", json=payload).json()
+    senti = client.post(
+        f"/portfolios/{pid}/simulate", json={**payload, "use_sentiment": True}
+    ).json()
+    assert plain["run_id"] != senti["run_id"]

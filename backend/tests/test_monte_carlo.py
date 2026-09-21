@@ -7,11 +7,15 @@ import numpy as np
 import pytest
 
 from app.simulation import (
+    MAX_VOLATILITY_MULTIPLIER,
+    MIN_VOLATILITY_MULTIPLIER,
     path_percentiles,
     returns_from_prices,
     run_simulation,
+    scale_returns_volatility,
     simulate_paths,
     validate_bootstrap,
+    volatility_multiplier_from_sentiment,
 )
 
 N_SIMS = 3000
@@ -165,5 +169,59 @@ def test_run_simulation_returns_percentile_trajectories(synthetic_returns):
     )
     assert result["paths"].shape == (2000, 121)
     assert result["percentiles"].shape == (3, 121)
-    assert result["percentile_levels"] == [5, 50, 95]
+    assert result["percentile_levels"] == [10, 50, 90]
     assert np.all(result["percentiles"] > 0)
+
+
+# ---------------------------------------------------------------------------
+# Sentiment -> volatility scaling
+# ---------------------------------------------------------------------------
+
+def test_sentiment_multiplier_is_asymmetric_around_neutral():
+    assert volatility_multiplier_from_sentiment(0.0) == pytest.approx(1.0)
+    assert volatility_multiplier_from_sentiment(-1.0) == pytest.approx(1.75)
+    assert volatility_multiplier_from_sentiment(1.0) == pytest.approx(0.75)
+    # Negative news widens more than equivalent positive news narrows.
+    assert volatility_multiplier_from_sentiment(-0.5) - 1.0 > 1.0 - volatility_multiplier_from_sentiment(0.5)
+
+
+def test_sentiment_multiplier_is_clipped_and_handles_nan():
+    # Out-of-range scores are clamped to [-1, 1] before the mapping.
+    assert volatility_multiplier_from_sentiment(-5.0) == pytest.approx(1.75)
+    assert volatility_multiplier_from_sentiment(5.0) == pytest.approx(0.75)
+    # Extreme sensitivities are still bounded by the hard safety clip.
+    assert volatility_multiplier_from_sentiment(
+        -1.0, negative_sensitivity=5.0
+    ) == pytest.approx(MAX_VOLATILITY_MULTIPLIER)
+    assert volatility_multiplier_from_sentiment(
+        1.0, positive_sensitivity=5.0
+    ) == pytest.approx(MIN_VOLATILITY_MULTIPLIER)
+    assert volatility_multiplier_from_sentiment(float("nan")) == pytest.approx(1.0)
+
+
+def test_scale_returns_volatility_scales_std_and_preserves_mean():
+    returns = np.array([0.01, -0.02, 0.03, -0.01, 0.02])
+    scaled = scale_returns_volatility(returns, 2.0)
+    assert float(scaled.mean()) == pytest.approx(float(returns.mean()))
+    assert float(scaled.std(ddof=1)) == pytest.approx(2.0 * float(returns.std(ddof=1)))
+    # Multiplier of 1 is a no-op; negative multipliers are rejected.
+    assert np.array_equal(scale_returns_volatility(returns, 1.0), returns)
+    with pytest.raises(ValueError):
+        scale_returns_volatility(returns, -0.5)
+
+
+def test_negative_sentiment_widens_simulated_spread(synthetic_returns):
+    common = dict(
+        initial_balance=1000.0,
+        horizon_months=60,
+        n_simulations=N_SIMS,
+        seed=5,
+    )
+    base = simulate_paths(synthetic_returns, **common)
+    wider = simulate_paths(synthetic_returns, volatility_multiplier=1.75, **common)
+    calmer = simulate_paths(synthetic_returns, volatility_multiplier=0.75, **common)
+
+    def spread(paths):
+        return np.percentile(paths[:, -1], 90) - np.percentile(paths[:, -1], 10)
+
+    assert spread(wider) > spread(base) > spread(calmer)

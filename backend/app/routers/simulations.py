@@ -27,6 +27,7 @@ def trigger_simulation(
             n_simulations=request.n_simulations,
             blocks=request.blocks,
             seed=request.seed,
+            use_sentiment=request.use_sentiment,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc

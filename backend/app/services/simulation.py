@@ -18,6 +18,7 @@ from ..simulation import monte_carlo
 from ..dao import portfolios as portfolio_dao
 from ..dao import prices as price_dao
 from ..dao import simulations as simulation_dao
+from . import sentiment_signal
 
 
 def portfolio_monthly_returns(
@@ -66,8 +67,16 @@ def canonical_params(
     n_simulations: int,
     blocks: int | None,
     seed: int | None,
+    use_sentiment: bool = False,
+    volatility_multiplier: float = 1.0,
+    sentiment_score: float | None = None,
 ) -> dict[str, Any]:
-    """Ordering-independent parameter key used for result caching."""
+    """Ordering-independent parameter key used for result caching.
+
+    The sentiment fields are part of the key so a run is only reused while the
+    sentiment it was built from is unchanged; a fresh news batch produces a new
+    volatility multiplier and therefore a new run.
+    """
     return {
         "initial_balance": float(initial_balance),
         "monthly_contribution": float(monthly_contribution),
@@ -75,6 +84,11 @@ def canonical_params(
         "n_simulations": int(n_simulations),
         "blocks": blocks,
         "seed": seed,
+        "use_sentiment": bool(use_sentiment),
+        "volatility_multiplier": round(float(volatility_multiplier), 6),
+        "sentiment_score": (
+            None if sentiment_score is None else round(float(sentiment_score), 6)
+        ),
     }
 
 
@@ -88,12 +102,18 @@ def _assemble_response(
     cached: bool,
 ) -> dict[str, Any]:
     finals = [path[-1] for path in trajectories]
+    multiplier = float(params.get("volatility_multiplier", 1.0))
     return {
         "run_id": run_id,
         "portfolio_id": portfolio_id,
         "created_at": created_at,
         "cached": cached,
         "params": params,
+        "sentiment": {
+            "applied": bool(params.get("use_sentiment")) and multiplier != 1.0,
+            "score": params.get("sentiment_score"),
+            "volatility_multiplier": multiplier,
+        },
         "percentiles": [
             {"level": level, "path": path}
             for level, path in zip(levels, trajectories, strict=True)
@@ -115,11 +135,14 @@ def run_portfolio_simulation(
     n_simulations: int = 1000,
     blocks: int | None = None,
     seed: int | None = None,
+    use_sentiment: bool = False,
 ) -> dict[str, Any]:
     """Run (or fetch a cached) simulation for a portfolio. Raises ValueError.
 
     ``monthly_contribution`` comes from the portfolio record, so results are
-    keyed by the contribution actually used.
+    keyed by the contribution actually used. When ``use_sentiment`` is set, the
+    recent sector + geopolitical news sentiment is aggregated into a score and
+    mapped to a volatility multiplier applied to the historical returns.
     """
     portfolio = portfolio_dao.get_portfolio(conn, portfolio_id)
     if portfolio is None:
@@ -129,6 +152,15 @@ def run_portfolio_simulation(
     if not holdings:
         raise ValueError("portfolio has no holdings")
 
+    sentiment_score: float | None = None
+    volatility_multiplier = 1.0
+    if use_sentiment:
+        sentiment_score = sentiment_signal.portfolio_sentiment_score(conn, holdings)
+        if sentiment_score is not None:
+            volatility_multiplier = monte_carlo.volatility_multiplier_from_sentiment(
+                sentiment_score
+            )
+
     monthly_contribution = float(portfolio["monthly_contribution"])
     params = canonical_params(
         initial_balance=initial_balance,
@@ -137,6 +169,9 @@ def run_portfolio_simulation(
         n_simulations=n_simulations,
         blocks=blocks,
         seed=seed,
+        use_sentiment=use_sentiment,
+        volatility_multiplier=volatility_multiplier,
+        sentiment_score=sentiment_score,
     )
     params_json = json.dumps(params, sort_keys=True)
 
@@ -164,6 +199,7 @@ def run_portfolio_simulation(
         n_simulations=n_simulations,
         blocks=blocks,
         seed=seed,
+        volatility_multiplier=volatility_multiplier,
     )
 
     run_id = simulation_dao.create_run(conn, portfolio_id, params_json)

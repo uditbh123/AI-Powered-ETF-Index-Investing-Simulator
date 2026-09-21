@@ -10,12 +10,26 @@ or in contiguous blocks (to preserve short-run autocorrelation).
 """
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from typing import Sequence
 
 import numpy as np
 
-DEFAULT_PERCENTILES = (5, 50, 95)
+# Phase 6 fan chart uses the 10th-90th confidence interval around the median.
+DEFAULT_PERCENTILES = (10, 50, 90)
+
+# --- Sentiment -> volatility mapping ---------------------------------------
+# FinBERT scores live in [-1, 1]. We scale the *dispersion* of the bootstrap
+# returns about their mean: multiplier > 1 widens the simulated distribution
+# (more risk), < 1 narrows it. The response is asymmetric because negative
+# news / uncertainty moves markets harder than positive news calms them, so a
+# bad score amplifies volatility more than a good score dampens it.
+# With the defaults: score = -1 -> 1.75x vol, score = +1 -> 0.75x vol.
+NEGATIVE_SENTIMENT_SENSITIVITY = 0.75
+POSITIVE_SENTIMENT_SENSITIVITY = 0.25
+MIN_VOLATILITY_MULTIPLIER = 0.5
+MAX_VOLATILITY_MULTIPLIER = 2.0
 
 
 def returns_from_prices(prices: Sequence[float]) -> np.ndarray:
@@ -28,6 +42,61 @@ def returns_from_prices(prices: Sequence[float]) -> np.ndarray:
     if np.any(prices <= 0):
         raise ValueError("Prices must be strictly positive")
     return np.diff(prices) / prices[:-1]
+
+
+def volatility_multiplier_from_sentiment(
+    score: float,
+    *,
+    negative_sensitivity: float = NEGATIVE_SENTIMENT_SENSITIVITY,
+    positive_sensitivity: float = POSITIVE_SENTIMENT_SENSITIVITY,
+) -> float:
+    """Map a [-1, 1] sentiment score to a volatility multiplier.
+
+    Math: the multiplier is piecewise-linear in the score,
+
+        multiplier = 1 + negative_sensitivity * (-score)   if score <  0
+        multiplier = 1 - positive_sensitivity *   score    if score >= 0
+
+    so it is exactly 1 (no adjustment) at neutral sentiment, rises above 1 as
+    sentiment turns negative (wider simulated paths) and dips below 1 as it
+    turns positive. The result is clipped to [0.5, 2.0] so one noisy headline
+    batch can never produce a degenerate (near-zero variance) or explosive
+    distribution. Non-finite input is treated as neutral.
+    """
+    if not math.isfinite(score):
+        return 1.0
+    score = float(np.clip(score, -1.0, 1.0))
+    if score < 0.0:
+        multiplier = 1.0 + negative_sensitivity * (-score)
+    else:
+        multiplier = 1.0 - positive_sensitivity * score
+    return float(
+        np.clip(multiplier, MIN_VOLATILITY_MULTIPLIER, MAX_VOLATILITY_MULTIPLIER)
+    )
+
+
+def scale_returns_volatility(
+    returns: Sequence[float],
+    multiplier: float,
+) -> np.ndarray:
+    """Rescale a return series' standard deviation, preserving its mean.
+
+    Math: with sample mean ``mu``, the transform ``r' = mu + multiplier *
+    (r - mu)`` multiplies the deviations about the mean, which scales the
+    standard deviation by exactly ``multiplier`` while leaving the mean (the
+    drift) untouched. Scaling the bootstrap *inputs* this way shifts the whole
+    resampled distribution rather than post-processing individual paths.
+    Results are floored at -0.99 so a scaled draw can never imply a loss of
+    more than the entire position.
+    """
+    returns = np.asarray(returns, dtype=float)
+    if multiplier < 0:
+        raise ValueError("volatility multiplier must be >= 0")
+    if returns.size == 0 or multiplier == 1.0:
+        return returns
+    mean = float(np.mean(returns))
+    scaled = mean + multiplier * (returns - mean)
+    return np.maximum(scaled, -0.99)
 
 
 def _draw_returns(
@@ -60,6 +129,7 @@ def simulate_paths(
     n_simulations: int = 1000,
     blocks: int | None = None,
     seed: int | None = None,
+    volatility_multiplier: float = 1.0,
 ) -> np.ndarray:
     """Simulate portfolio value trajectories via bootstrap resampling.
 
@@ -67,6 +137,10 @@ def simulate_paths(
     that period's return. Returns an array of shape
     (n_simulations, horizon_months + 1) where column ``t`` is the portfolio
     value at the end of period ``t`` (column 0 is the initial balance).
+
+    ``volatility_multiplier`` optionally rescales the historical returns'
+    dispersion before resampling (see :func:`scale_returns_volatility`); the
+    sentiment pipeline uses this to widen/narrow the fan chart.
     """
     if initial_balance < 0:
         raise ValueError("initial_balance must be >= 0")
@@ -81,6 +155,8 @@ def simulate_paths(
     returns = np.asarray(returns, dtype=float)
     if returns.ndim != 1 or returns.size == 0:
         raise ValueError("returns must be a non-empty 1-D array")
+    if volatility_multiplier != 1.0:
+        returns = scale_returns_volatility(returns, volatility_multiplier)
 
     drawn = _draw_returns(rng, returns, n_simulations, horizon_months, blocks)
 
@@ -205,11 +281,13 @@ def run_simulation(
     blocks: int | None = None,
     percentile_levels: Sequence[float] = DEFAULT_PERCENTILES,
     seed: int | None = None,
+    volatility_multiplier: float = 1.0,
 ) -> dict:
     """High-level helper returning trajectories and percentile bands.
 
-    This is the single entry point the Phase 3 API will call. Inputs are the
-    same as :func:`simulate_paths`.
+    This is the single entry point the Phase 3/6 API calls. Inputs are the same
+    as :func:`simulate_paths`; ``volatility_multiplier`` lets the sentiment
+    layer scale the simulated dispersion.
     """
     paths = simulate_paths(
         returns,
@@ -219,6 +297,7 @@ def run_simulation(
         n_simulations=n_simulations,
         blocks=blocks,
         seed=seed,
+        volatility_multiplier=volatility_multiplier,
     )
     bands = path_percentiles(paths, levels=percentile_levels)
     return {
@@ -228,15 +307,22 @@ def run_simulation(
         "horizon_months": horizon_months,
         "n_simulations": n_simulations,
         "seed": seed,
+        "volatility_multiplier": volatility_multiplier,
     }
 
 
 __all__ = [
     "returns_from_prices",
+    "volatility_multiplier_from_sentiment",
+    "scale_returns_volatility",
     "simulate_paths",
     "path_percentiles",
     "validate_bootstrap",
     "run_simulation",
     "ValidationReport",
     "DEFAULT_PERCENTILES",
+    "NEGATIVE_SENTIMENT_SENSITIVITY",
+    "POSITIVE_SENTIMENT_SENSITIVITY",
+    "MIN_VOLATILITY_MULTIPLIER",
+    "MAX_VOLATILITY_MULTIPLIER",
 ]

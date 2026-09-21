@@ -56,6 +56,7 @@ class SimulationRequest(BaseModel):
     n_simulations: int = Field(default=1000, ge=50, le=100_000)
     seed: int | None = None
     blocks: int | None = Field(default=None, gt=0)
+    use_sentiment: bool = False
 
 
 __all__ = [

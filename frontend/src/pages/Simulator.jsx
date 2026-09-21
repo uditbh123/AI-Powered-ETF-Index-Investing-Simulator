@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react'
 import {
+  Area,
   CartesianGrid,
+  ComposedChart,
   Line,
-  LineChart,
   ResponsiveContainer,
   Tooltip,
   XAxis,
@@ -13,6 +14,7 @@ import {
   Gauge,
   Play,
   Plus,
+  Sparkles,
   Trash,
   TrendingDown,
   TrendingUp,
@@ -53,17 +55,67 @@ function FieldSlider({ icon: Icon, label, value, min, max, step, onChange, rende
   )
 }
 
-function ChartTooltip({ active, payload, label }) {
+function FanTooltip({ active, payload }) {
   if (!active || !payload?.length) return null
+  const point = payload[0].payload
+  const rows = [
+    { label: '90th', value: point.high, tone: 'text-pos' },
+    { label: 'median', value: point.median, tone: 'text-accent' },
+    { label: '10th', value: point.low, tone: 'text-neg' },
+  ]
   return (
     <div className="rounded-md border border-white/10 bg-black px-3 py-2">
       <div className="text-[11px] text-ink-faint">
-        Year {Math.floor(label / 12)} · month {label % 12}
+        Year {Math.floor(point.month / 12)} · month {point.month % 12}
       </div>
-      <div className="mt-0.5 font-mono text-sm text-accent tabular-nums">
-        {formatCurrency(payload[0].value)}
+      <div className="mt-1 space-y-0.5 font-mono text-[12px] tabular-nums">
+        {rows.map(({ label, value, tone }) => (
+          <div key={label} className="flex items-center justify-between gap-5">
+            <span className="text-ink-faint">{label}</span>
+            <span className={tone}>{formatCurrency(value)}</span>
+          </div>
+        ))}
       </div>
     </div>
+  )
+}
+
+function ToggleSwitch({ checked, onChange, title, subtitle }) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={checked}
+      onClick={() => onChange(!checked)}
+      className="flex w-full items-center justify-between gap-3 rounded-md border border-white/10 bg-white/[0.02] px-2.5 py-2 text-left transition-colors hover:border-white/30"
+    >
+      <span className="min-w-0">
+        <span className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.06em] text-ink-soft">
+          <Sparkles
+            size={11}
+            strokeWidth={1.8}
+            className={checked ? 'text-accent' : 'text-ink-dim'}
+          />
+          {title}
+        </span>
+        <span className="mt-0.5 block text-[11px] leading-snug text-ink-dim">
+          {subtitle}
+        </span>
+      </span>
+      <span
+        className={[
+          'relative h-4 w-8 shrink-0 rounded-full border transition-colors',
+          checked ? 'border-accent bg-accent/25' : 'border-white/20 bg-white/5',
+        ].join(' ')}
+      >
+        <span
+          className={[
+            'absolute top-1/2 h-2.5 w-2.5 -translate-y-1/2 rounded-full transition-all',
+            checked ? 'left-[15px] bg-accent' : 'left-0.5 bg-ink-faint',
+          ].join(' ')}
+        />
+      </span>
+    </button>
   )
 }
 
@@ -74,6 +126,7 @@ export default function Simulator() {
   const [initialBalance, setInitialBalance] = useState(10000)
   const [horizonYears, setHorizonYears] = useState(10)
   const [holdings, setHoldings] = useState(DEFAULT_HOLDINGS)
+  const [useSentiment, setUseSentiment] = useState(false)
 
   const [phase, setPhase] = useState('idle') // idle | running | done
   const [result, setResult] = useState(null)
@@ -121,6 +174,7 @@ export default function Simulator() {
         body: JSON.stringify({
           initial_balance: Number(initialBalance),
           horizon_months: Number(horizonYears) * 12,
+          use_sentiment: useSentiment,
         }),
       })
       setResult(sim)
@@ -131,17 +185,22 @@ export default function Simulator() {
     }
   }
 
-  const medianBand = result?.percentiles.find((p) => p.level === 50)
-  const chartData = medianBand?.path.map((value, month) => ({
-    month,
-    value: Math.round(value),
-  }))
+  const bandPath = (level) =>
+    result?.percentiles.find((p) => p.level === level)?.path ?? []
+  const lowBand = bandPath(10)
+  const medianBand = bandPath(50)
+  const highBand = bandPath(90)
+  const chartData = medianBand.map((value, month) => {
+    const low = Math.round(lowBand[month] ?? value)
+    const high = Math.round(highBand[month] ?? value)
+    return { month, low, median: Math.round(value), high, band: [low, high] }
+  })
 
   const statCards = result
     ? [
-        { icon: TrendingUp, label: 'Best case (95th)', value: result.summary.best_case_final_value, tone: 'tick-up' },
+        { icon: TrendingUp, label: 'Best case (90th)', value: result.summary.best_case_final_value, tone: 'tick-up' },
         { icon: Gauge, label: 'Median outcome', value: result.summary.median_final_value, tone: 'text-accent' },
-        { icon: TrendingDown, label: 'Worst case (5th)', value: result.summary.worst_case_final_value, tone: 'tick-down' },
+        { icon: TrendingDown, label: 'Worst case (10th)', value: result.summary.worst_case_final_value, tone: 'tick-down' },
       ]
     : []
 
@@ -262,6 +321,13 @@ export default function Simulator() {
               </button>
             </div>
 
+            <ToggleSwitch
+              checked={useSentiment}
+              onChange={setUseSentiment}
+              title="AI Sentiment Adjustment (Includes Geopolitical Risk)"
+              subtitle="Scales historical volatility by recent FinBERT news sentiment."
+            />
+
             {error && <p className="text-xs text-neg">Error: {error}</p>}
 
             <button
@@ -285,7 +351,7 @@ export default function Simulator() {
               <p className="text-sm text-ink-soft">
                 Adjust the controls and press{' '}
                 <span className="font-medium text-accent">Run simulation</span> to
-                chart the median growth trajectory.
+                chart the 10th–90th percentile growth fan.
               </p>
             </div>
           ) : (
@@ -312,14 +378,22 @@ export default function Simulator() {
 
               <div className="panel bg-base-panel">
                 <div className="panel-title">
-                  <span>Median growth trajectory</span>
-                  <span className="font-mono text-[10px] normal-case text-ink-faint">
-                    {horizonYears} yr · {formatCurrency(contribution)}/mo
+                  <span>Growth fan chart · 10th–90th percentile</span>
+                  <span className="flex items-center gap-2 font-mono text-[10px] normal-case text-ink-faint">
+                    {result.sentiment?.applied && (
+                      <span className="chip">
+                        <Sparkles size={10} strokeWidth={2} className="text-accent" />
+                        sentiment ×{result.sentiment.volatility_multiplier.toFixed(2)}
+                      </span>
+                    )}
+                    <span>
+                      {horizonYears} yr · {formatCurrency(contribution)}/mo
+                    </span>
                   </span>
                 </div>
                 <div className="h-[380px] px-2 py-3">
                   <ResponsiveContainer width="100%" height="100%">
-                    <LineChart data={chartData} margin={{ top: 8, right: 16, bottom: 8, left: 8 }}>
+                    <ComposedChart data={chartData} margin={{ top: 8, right: 16, bottom: 8, left: 8 }}>
                       <CartesianGrid stroke="var(--chart-grid)" strokeDasharray="3 3" vertical={false} />
                       <XAxis
                         dataKey="month"
@@ -335,16 +409,28 @@ export default function Simulator() {
                         axisLine={false}
                         width={48}
                       />
-                      <Tooltip content={<ChartTooltip />} />
+                      <Tooltip
+                        content={<FanTooltip />}
+                        cursor={{ stroke: 'rgba(255,255,255,0.25)', strokeDasharray: '3 3' }}
+                      />
+                      <Area
+                        type="monotone"
+                        dataKey="band"
+                        stroke="none"
+                        fill="var(--chart-line)"
+                        fillOpacity={0.1}
+                        isAnimationActive={false}
+                        activeDot={false}
+                      />
                       <Line
                         type="monotone"
-                        dataKey="value"
+                        dataKey="median"
                         stroke="var(--chart-line)"
                         strokeWidth={2}
                         dot={false}
                         activeDot={{ r: 3, fill: 'var(--chart-line)', stroke: 'var(--chart-glow)' }}
                       />
-                    </LineChart>
+                    </ComposedChart>
                   </ResponsiveContainer>
                 </div>
               </div>
