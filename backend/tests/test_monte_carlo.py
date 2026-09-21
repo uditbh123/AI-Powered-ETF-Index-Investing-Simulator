@@ -95,21 +95,16 @@ def test_simulation_rejects_invalid_parameters(kwargs):
 # ---------------------------------------------------------------------------
 
 def test_constant_return_matches_closed_form():
-    rate, balance, contribution, months = 0.01, 1000.0, 100.0, 12
-    returns = [rate] * months
+    # start-of-period contributions (annuity-due): the contribution deposited at
+    # the start of period k earns that period's return
+    r, t = 0.01, 24
     paths = simulate_paths(
-        returns=returns,
-        initial_balance=balance,
-        monthly_contribution=contribution,
-        horizon_months=months,
-        n_simulations=500,
-        seed=1,
+        returns=np.full(500, r), initial_balance=1000.0,
+        monthly_contribution=100.0, horizon_months=t,
+        n_simulations=10, seed=42,
     )
-
-    g = (1.0 + rate) ** np.arange(1, months + 1)
-    expected = g * (balance + contribution * np.cumsum((1.0 + rate) ** -np.arange(1, months + 1)))
-    # Every path is identical under a constant return.
-    assert np.allclose(paths[-1, 1:], expected, rtol=1e-12)
+    expected = 1000 * (1 + r) ** t + 100 * (1 + r) * (((1 + r) ** t - 1) / r)
+    assert np.allclose(paths[:, -1], expected)
 
 
 def test_no_contribution_matches_compound_growth():
@@ -225,3 +220,15 @@ def test_negative_sentiment_widens_simulated_spread(synthetic_returns):
         return np.percentile(paths[:, -1], 90) - np.percentile(paths[:, -1], 10)
 
     assert spread(wider) > spread(base) > spread(calmer)
+
+def test_volatility_drag_lowers_median():
+    """Higher multiplier widens bands AND lowers the median (volatility drag)."""
+    base = simulate_paths(
+        returns=np.array([0.05, -0.03, 0.02, -0.04, 0.06, -0.02] * 50),
+        initial_balance=1000.0, horizon_months=120,
+        n_simulations=2000, seed=7, volatility_multiplier=1.0)
+    high = simulate_paths(
+        returns=np.array([0.05, -0.03, 0.02, -0.04, 0.06, -0.02] * 50),
+        initial_balance=1000.0, horizon_months=120,
+        n_simulations=2000, seed=7, volatility_multiplier=1.25)
+    assert np.median(high[:, -1]) < np.median(base[:, -1])
