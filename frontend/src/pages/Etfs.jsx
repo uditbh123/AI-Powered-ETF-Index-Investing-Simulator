@@ -1,35 +1,117 @@
-import { useEffect, useState } from 'react'
-import { ChartCandlestick } from 'lucide-react'
+import { useEffect, useMemo, useState } from 'react'
+import { ArrowDown, ArrowUp, ArrowUpDown, BarChart3 } from 'lucide-react'
+import { useNavigate } from 'react-router-dom'
 import { fetchJSON } from '../api'
 
+const COLUMNS = [
+  { key: 'symbol', label: 'Symbol', align: 'left', kind: 'symbol' },
+  { key: 'name', label: 'Name', align: 'left', kind: 'text' },
+  { key: 'sector', label: 'Sector', align: 'left', kind: 'text' },
+  { key: 'one_year_total_return_pct', label: '1Y', align: 'right', kind: 'pct', tone: 'signed' },
+  { key: 'one_day_change_pct', label: '1D', align: 'right', kind: 'pct', tone: 'signed' },
+  { key: 'annualized_volatility_pct', label: 'Vol (ann.)', align: 'right', kind: 'pct' },
+  { key: 'max_drawdown_pct', label: 'Max DD (1Y)', align: 'right', kind: 'pct', tone: 'drawdown' },
+  { key: 'latest_close', label: 'Latest', align: 'right', kind: 'price' },
+]
+
+function fmtPrice(value) {
+  return value == null
+    ? '—'
+    : value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+}
+
+function fmtPct(value) {
+  return value == null ? '—' : `${value >= 0 ? '+' : ''}${value.toFixed(2)}%`
+}
+
+function cellTone(row, column) {
+  if (!column.tone) return ''
+  const value = row[column.key]
+  if (value == null) return 'text-ink-faint'
+  if (column.tone === 'drawdown') return value < 0 ? 'text-neg' : 'text-ink-faint'
+  return value >= 0 ? 'text-pos' : 'text-neg'
+}
+
+function cellContent(row, column) {
+  if (column.kind === 'text' || column.kind === 'symbol') return row[column.key]
+  if (column.kind === 'price') return fmtPrice(row[column.key])
+  return fmtPct(row[column.key])
+}
+
+function cellClass(column) {
+  const columns = ['px-4 py-2', 'text-sm']
+  columns.push(column.align === 'right' ? 'text-right' : 'text-left')
+  if (column.kind === 'symbol') columns.push('font-mono font-semibold text-accent')
+  if (column.kind === 'pct' || column.kind === 'price') columns.push('font-mono tabular-nums')
+  return columns.join(' ')
+}
+
+function SortIcon({ column, sortKey, sortDir }) {
+  if (sortKey !== column.key) {
+    return <ArrowUpDown size={11} strokeWidth={1.8} className="text-ink-dim" />
+  }
+  return sortDir === 'asc' ? (
+    <ArrowUp size={11} strokeWidth={2} className="text-accent" />
+  ) : (
+    <ArrowDown size={11} strokeWidth={2} className="text-accent" />
+  )
+}
+
 export default function Etfs() {
-  const [tickers, setTickers] = useState([])
+  const [rows, setRows] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
+  const [sortKey, setSortKey] = useState('symbol')
+  const [sortDir, setSortDir] = useState('asc')
+  const navigate = useNavigate()
 
   useEffect(() => {
-    fetchJSON('/tickers')
-      .then(setTickers)
+    fetchJSON('/screener')
+      .then(setRows)
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false))
   }, [])
+
+  const sortedRows = useMemo(() => {
+    const direction = sortDir === 'asc' ? 1 : -1
+    return [...rows].sort((a, b) => {
+      const left = a[sortKey]
+      const right = b[sortKey]
+      if (left == null && right == null) return 0
+      if (left == null) return 1
+      if (right == null) return -1
+      if (typeof left === 'string' || typeof right === 'string') {
+        return String(left).localeCompare(String(right)) * direction
+      }
+      return (left - right) * direction
+    })
+  }, [rows, sortKey, sortDir])
+
+  function toggleSort(key) {
+    if (key === sortKey) {
+      setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'))
+    } else {
+      setSortKey(key)
+      setSortDir('asc')
+    }
+  }
 
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight text-ink">
-            ETF catalog
+            ETF screener
           </h1>
           <p className="mt-1 text-sm text-ink-soft">
-            Instruments tracked by the simulator with local price-history
-            coverage.
+            Screening stats computed from stored price history. Click a row to
+            open it in the simulator.
           </p>
         </div>
         {!loading && !error && (
           <span className="chip shrink-0">
-            <ChartCandlestick size={11} strokeWidth={2} className="text-accent" />
-            {tickers.length.toString().padStart(2, '0')} symbols
+            <BarChart3 size={11} strokeWidth={2} className="text-accent" />
+            {rows.length.toString().padStart(2, '0')} tracked
           </span>
         )}
       </div>
@@ -44,50 +126,45 @@ export default function Etfs() {
 
       {error && (
         <div className="panel px-4 py-3 text-sm text-neg">
-          Error loading tickers: {error}
+          Error loading screener: {error}
         </div>
       )}
 
       {!loading && !error && (
         <div className="panel overflow-hidden">
           <div className="max-h-[calc(100vh-220px)] overflow-auto">
-            <table className="w-full border-collapse text-sm">
+            <table className="w-full border-collapse">
               <thead className="sticky top-0 z-10 bg-base-panel text-left">
                 <tr className="border-b border-edge">
-                  <th className="px-4 py-2 text-[11px] font-semibold uppercase tracking-[0.06em] text-ink-faint">
-                    Symbol
-                  </th>
-                  <th className="px-4 py-2 text-[11px] font-semibold uppercase tracking-[0.06em] text-ink-faint">
-                    Name
-                  </th>
-                  <th className="px-4 py-2 text-[11px] font-semibold uppercase tracking-[0.06em] text-ink-faint">
-                    Sector
-                  </th>
-                  <th className="px-4 py-2 text-right text-[11px] font-semibold uppercase tracking-[0.06em] text-ink-faint">
-                    Price points
-                  </th>
-                  <th className="px-4 py-2 text-right text-[11px] font-semibold uppercase tracking-[0.06em] text-ink-faint">
-                    Date range
-                  </th>
+                  {COLUMNS.map((column) => (
+                    <th key={column.key} className="px-4 py-2">
+                      <button
+                        type="button"
+                        onClick={() => toggleSort(column.key)}
+                        className={`flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.06em] text-ink-faint transition-colors hover:text-ink-soft ${
+                          column.align === 'right' ? 'ml-auto' : ''
+                        }`}
+                      >
+                        {column.label}
+                        <SortIcon column={column} sortKey={sortKey} sortDir={sortDir} />
+                      </button>
+                    </th>
+                  ))}
                 </tr>
               </thead>
               <tbody>
-                {tickers.map((t) => (
+                {sortedRows.map((row) => (
                   <tr
-                    key={t.symbol}
-                    className="border-b border-edge-subtle transition-colors last:border-0 hover:bg-base-hover"
+                    key={row.symbol}
+                    onClick={() => navigate(`/simulator?ticker=${row.symbol}`)}
+                    title={`Run a simulation with ${row.symbol}`}
+                    className="cursor-pointer border-b border-edge-subtle transition-colors last:border-0 hover:bg-base-hover"
                   >
-                    <td className="px-4 py-2 font-mono text-sm font-semibold text-accent">
-                      {t.symbol}
-                    </td>
-                    <td className="px-4 py-2 text-ink">{t.name}</td>
-                    <td className="px-4 py-2 text-ink-soft">{t.sector}</td>
-                    <td className="px-4 py-2 text-right font-mono text-ink tabular-nums">
-                      {(t.price_rows || 0).toLocaleString()}
-                    </td>
-                    <td className="px-4 py-2 text-right font-mono text-[12px] text-ink-soft tabular-nums">
-                      {t.first_date ? `${t.first_date} → ${t.last_date}` : '—'}
-                    </td>
+                    {COLUMNS.map((column) => (
+                      <td key={column.key} className={`${cellClass(column)} ${cellTone(row, column)}`}>
+                        {cellContent(row, column)}
+                      </td>
+                    ))}
                   </tr>
                 ))}
               </tbody>

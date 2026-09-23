@@ -74,6 +74,18 @@ class NewsFeedOut(BaseModel):
     headlines: list[HeadlineOut]
 
 
+class ScreenerOut(BaseModel):
+    symbol: str
+    name: str | None
+    sector: str | None
+    latest_close: float
+    prev_close: float | None
+    one_day_change_pct: float | None
+    one_year_total_return_pct: float | None
+    annualized_volatility_pct: float | None
+    max_drawdown_pct: float
+
+
 __all__ = [
     "HoldingIn",
     "PortfolioCreate",
@@ -84,4 +96,5 @@ __all__ = [
     "SimulationRequest",
     "HeadlineOut",
     "NewsFeedOut",
+    "ScreenerOut",
 ]

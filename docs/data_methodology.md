@@ -36,6 +36,31 @@ _Per the project's ingest implementation (`app/services/market_data.py`,
 - **Idempotence.** Re-running a pull never duplicates rows thanks to the
   `UNIQUE(ticker_id, date)` constraint.
 
+## Screener metrics
+
+_Source: `compute_screener_stats` in `app/services/screener.py`, exposed as
+`GET /screener` (`app/routers/screener.py`)._
+
+Per tracked ticker with at least one stored price row, computed from the local
+`prices` table with pandas (no network):
+
+| Metric | Definition |
+|--------|-----------|
+| Latest / Prev close | Last two stored daily closes. |
+| 1D change | `(latest / prev − 1) · 100`, `null` without two closes. |
+| 1Y return | Close 252 trading days ago vs latest: `(latest / base − 1) · 100`; `null` with fewer than 253 rows. |
+| Annualized volatility | Std. dev. (`ddof=1`) of daily log returns over the last 252 closes, × `√252` × 100; `null` with fewer than 30 points in the window. |
+| Max drawdown (1Y) | Largest peak-to-trough decline over the last year (negative %; 0 when the series never declined). |
+
+### KNOWN LIMITATION — adjustment basis
+
+All metrics derive from the stored `Close` column, which Yahoo serves on the
+adjustment basis of the most recent download (see Price data above). The exact
+basis used for each series is **under review**. Because the close is a pure
+price, income metrics such as the 1-year return exclude dividend
+reinvestment and may **understate a dividend payer's true (total-return)
+performance** until the basis issue is resolved.
+
 ## Monthly return construction
 
 _Source: `portfolio_monthly_returns` in `app/services/simulation.py`._

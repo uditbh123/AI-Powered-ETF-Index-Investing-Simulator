@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { useLocation } from 'react-router-dom'
 import {
   Area,
   CartesianGrid,
@@ -120,12 +121,16 @@ function ToggleSwitch({ checked, onChange, title, subtitle }) {
 }
 
 export default function Simulator() {
+  const { search } = useLocation()
   const [tickers, setTickers] = useState([])
   const [name, setName] = useState('My Portfolio')
   const [contribution, setContribution] = useState(200)
   const [initialBalance, setInitialBalance] = useState(10000)
   const [horizonYears, setHorizonYears] = useState(10)
-  const [holdings, setHoldings] = useState(DEFAULT_HOLDINGS)
+  const [holdings, setHoldings] = useState(() => {
+    const preSelected = new URLSearchParams(search).get('ticker')
+    return preSelected ? [{ symbol: preSelected, weight: 100 }] : DEFAULT_HOLDINGS
+  })
   const [useSentiment, setUseSentiment] = useState(false)
 
   const [phase, setPhase] = useState('idle') // idle | running | done
