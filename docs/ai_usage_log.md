@@ -1,9 +1,9 @@
-# AI Usage Log
+﻿# AI Usage Log
 
 Log of AI-assisted changes found through human code review. One entry per bug;
 evidence from the test suite is included.
 
-## Bug 1 — Contribution timing in the Monte Carlo engine
+## Bug 1 â€” Contribution timing in the Monte Carlo engine
 - **Found by:** human review (docstring vs. code mismatch).
 - **Verification:** the `simulate_paths` contribution timing was already fixed
   in an earlier commit (`a0de804`, "fixed the contribution timing bug"): the
@@ -19,7 +19,7 @@ evidence from the test suite is included.
   FAILED (`1111.` vs expected `1110.` at month 1). After alignment:
   `102 passed`. Commit `96b360f`.
 
-## Bug 2 — Percentile levels documented three ways
+## Bug 2 â€” Percentile levels documented three ways
 - **Found by:** human review.
 - **Verification:** confirmed both stale texts present:
   - `monte_carlo.py` `path_percentiles` docstring: "best-case (95th), median
@@ -29,7 +29,7 @@ evidence from the test suite is included.
 - **Test evidence:** suite green after change (`100 passed`).
   Commit `99c20f2`.
 
-## Bug 3 — Trivially-true geometric-mean match in `validate_bootstrap`
+## Bug 3 â€” Trivially-true geometric-mean match in `validate_bootstrap`
 - **Found by:** human review.
 - **Verification:** confirmed. `hist_geom = hist_geom_mean if hist_geom_mean is
   not None else sim_geom` made `geometric_mean_match` always `True` (and
@@ -45,21 +45,21 @@ evidence from the test suite is included.
   still valid for all-positive returns and unchanged).
 - **Test evidence:** `101 passed`. Commit `ea7e740`.
 
-## Bug 4 — Fragile summary indexing in `_assemble_response`
+## Bug 4 â€” Fragile summary indexing in `_assemble_response`
 - **Found by:** human review.
 - **Verification:** confirmed `finals[len(finals) // 2]` assumed ascending,
   odd-count levels. Frontend checked first: `frontend/src/pages/Simulator.jsx`
   reads `summary.best/median/worst_case_final_value`, `sentiment.applied`, and
-  `sentiment.volatility_multiplier` — all keys preserved; the raw
+  `sentiment.volatility_multiplier` â€” all keys preserved; the raw
   `sentiment.score` was already present, so the change is additive only.
 - **What changed:** summary finals now indexed by percentile level value
   (`dict(zip(levels, finals))` with `min/max/get(50.0, ...)` fallback).
   The `"applied": bool(use_sentiment) and multiplier != 1.0` logic was kept.
 - **Test evidence:** suite green. Commit `e186b91`.
 
-## Bug 5 — Stray character at end of schema.sql
+## Bug 5 â€” Stray character at end of schema.sql
 - **Found by:** human review.
-- **Verification:** the stray `a` is **not present** — raw byte inspection
+- **Verification:** the stray `a` is **not present** â€” raw byte inspection
   shows the file ends with `...published_at);` and the final non-whitespace
   character is `;`. Nothing was removed.
 - **What changed:** created `tests/test_schema.py` asserting schema.sql runs
@@ -68,7 +68,7 @@ evidence from the test suite is included.
   both news indexes (the review's requested coverage).
 - **Test evidence:** `test_schema.py` green. Commit `65fb139`.
 
-## Bug 6 — Foreign keys not enforced per connection
+## Bug 6 â€” Foreign keys not enforced per connection
 - **Found by:** human review.
 - **Verification:** confirmed. `get_connection()` set only
   `PRAGMA foreign_keys = ON`; `journal_mode`/`busy_timeout` were never set on
@@ -79,9 +79,9 @@ evidence from the test suite is included.
   `PRAGMA foreign_keys == 1`, WAL mode, and busy_timeout 5000.
 - **Test evidence:** `101 passed`. Commit `db31b85`.
 
-## Bug 7 — Schema never applied to non-empty databases
+## Bug 7 â€” Schema never applied to non-empty databases
 - **Found by:** human review.
-- **Verification:** the premise was **already false** — `init_db()` runs
+- **Verification:** the premise was **already false** â€” `init_db()` runs
   `executescript` unconditionally (idempotent, all statements `IF NOT EXISTS`),
   so new schema reaches existing databases at startup. `ANALYZE` is not run at
   startup. Nothing to fix in `database.py`.
@@ -92,7 +92,7 @@ evidence from the test suite is included.
   ingest (none of the new indexes have runtime statistics yet).
 - **Test evidence:** `102 passed`. Commit `ddabf88`.
 
-## Bug 8 — Sentiment-to-volatility band too wide (deliberate parameter change)
+## Bug 8 â€” Sentiment-to-volatility band too wide (deliberate parameter change)
 - **Found by:** human review (uses docs/sentiment_validation.md findings).
 - **Verification:** confirmed existing constants
   (`NEGATIVE_SENTIMENT_SENSITIVITY = 0.75`, `POSITIVE_SENTIMENT_SENSITIVITY =
@@ -104,20 +104,20 @@ evidence from the test suite is included.
   docstring clip range updated to [0.9, 1.1].
 - **Tests updated (and why):**
   - `test_monte_carlo.py::test_sentiment_multiplier_is_asymmetric_around_neutral`
-    — asserted old magnitudes 1.75 / 0.75.
+    â€” asserted old magnitudes 1.75 / 0.75.
   - `test_monte_carlo.py::test_sentiment_multiplier_is_clipped_and_handles_nan`
-    — asserted old clipped bounds 1.75 / 0.75 (clips are now 1.10 / 0.95).
-  - `test_api.py::test_positive_sentiment_narrows_volatility` — asserted old
+    â€” asserted old clipped bounds 1.75 / 0.75 (clips are now 1.10 / 0.95).
+  - `test_api.py::test_positive_sentiment_narrows_volatility` â€” asserted old
     multiplier 0.75 for score +1.0.
-  - `test_api.py::test_negative_sentiment_widens_the_fan_chart` — the old wide
+  - `test_api.py::test_negative_sentiment_widens_the_fan_chart` â€” the old wide
     band made the 10/90 spread gap visible at 2-dp rounding; with the narrow
     band the max-signal setup (score -1.0, horizon 60) keeps the strict
     direction check meaningful. Multiplier assertion tightened to `1.10`.
   - Tests passing explicit multipliers to `simulate_paths` (1.75 / 0.75) were
-    NOT changed — that path is not clipped.
+    NOT changed â€” that path is not clipped.
 - **Test evidence:** `102 passed`. Commit `ead678c`.
 
-## Stage A — News sentiment feed API + Financial News page
+## Stage A â€” News sentiment feed API + Financial News page
 - **What changed:** new `GET /news?category=sector|geopolitical&ticker_id=&days=30`
   endpoint (`app/routers/news.py`, response models `HeadlineOut`/`NewsFeedOut`
   in `app/schemas.py`). Newest-first, headlined capped at 100, `days` clamped to
@@ -132,12 +132,12 @@ evidence from the test suite is included.
   all-null, newest-first, 100 cap, 422s, empty feed). `109 -> 119 passed`.
   Commit `0878342`.
 
-## Stage B — ETF screener endpoint + sortable screener table
+## Stage B â€” ETF screener endpoint + sortable screener table
 - **What changed:** new `GET /screener` (`app/routers/screener.py`,
   `app/services/screener.py`) computing per-ticker screening stats from the
   stored daily closes with pandas (no network): 1D change, 1Y total return
   (null <253 rows), annualized volatility (std of daily log returns over the
-  last 252 closes ×√252, null <30 points), and max drawdown over the last year
+  last 252 closes Ã—âˆš252, null <30 points), and max drawdown over the last year
   (negative %). Only tickers with price history appear, sorted by symbol. The
   known adjustment-basis limitation is documented in the endpoint docstring and
   `docs/data_methodology.md`. ETF catalog page now renders the screener with
@@ -148,21 +148,21 @@ evidence from the test suite is included.
   1D, vol null/known/zero, drawdown, API shape + exclusion of history-less
   tickers). `119 -> 131 passed`. Commit `48f7eb1`.
 
-## Stage C — FK-safe DELETE /portfolios/{id}
+## Stage C â€” FK-safe DELETE /portfolios/{id}
 - **What changed:** `delete_portfolio` in `app/dao/portfolios.py` removes child
-  rows in dependency order (simulation_results → simulation_runs →
-  portfolio_holdings → portfolios) with foreign keys enforced per connection;
+  rows in dependency order (simulation_results â†’ simulation_runs â†’
+  portfolio_holdings â†’ portfolios) with foreign keys enforced per connection;
   returns 404 when the portfolio does not exist. No frontend change.
 - **Test evidence:** `tests/test_portfolio_delete.py` (4 tests) asserts row
   counts in all four tables drop to zero after delete, 404 for missing, 404 on
   double-delete, and that other portfolios are untouched. `131 -> 135 passed`.
   Commit `75363d8`.
 
-## Stage D — Crisis replay endpoint + Simulator overlay
+## Stage D â€” Crisis replay endpoint + Simulator overlay
 - **What changed:** new `POST /portfolios/{id}/crisis-replay`
   (`app/routers/crisis.py`, `app/services/crisis.py`) replays a portfolio
-  through fixed windows (`dot_com_2000` 2000-03→2002-09, `gfc_2008`
-  2007-10→2009-03, `covid_2020` 2020-02→2020-04). The real trajectory compounds
+  through fixed windows (`dot_com_2000` 2000-03â†’2002-09, `gfc_2008`
+  2007-10â†’2009-03, `covid_2020` 2020-02â†’2020-04). The real trajectory compounds
   the portfolio's realized monthly returns with start-of-month contributions,
   mirroring the engine (`compound_actual` matches the same closed form as
   `test_constant_return_matches_closed_form`); a history that does not fully
@@ -178,7 +178,7 @@ evidence from the test suite is included.
   compounding, plus API wiring/422s/400s and seed determinism).
   `135 -> 150 passed`. Commit `a869e9c`.
 
-## Stage F — Frontend design pass (quant-terminal aesthetic; presentational only)
+## Stage F â€” Frontend design pass (quant-terminal aesthetic; presentational only)
 - **What changed:** styling-only pass; no API calls, data wiring, prop
   contracts, routing, or backend files were touched. Design decisions:
   accent `#4cc2ff` for all interactive elements (accent), semantic up/down
@@ -202,10 +202,55 @@ evidence from the test suite is included.
   `src/pages/Home.jsx`, `src/pages/Etfs.jsx`, `src/pages/Simulator.jsx`,
   `src/pages/FinancialNews.jsx`, `src/pages/InvestingStrategies.jsx`,
   `README.md` (Screenshots section), `docs/screenshots/before/` and
-  `docs/screenshots/after/` (5 pages × desktop 1440×900 + mobile 390×844,
+  `docs/screenshots/after/` (5 pages Ã— desktop 1440Ã—900 + mobile 390Ã—844,
   captured with Edge headless).
 - **Evidence:** `npm run lint` (oxlint) clean; `npm run build` clean; DOM
   verification after the pass shows the same real data rendering on all pages
   (SPY watchlist rows, screener table + "tracked" chip, headlines + aggregate
   sentiment, simulator controls). Frontend has no test suite; the backend
   suite is unaffected (150 passed).
+
+## Stage H  —  Branded frontend shell (top nav, 404, page meta, a11y, code splitting)
+- **What changed:** presentational/frontend-only; no backend files touched.
+  - H3: `Sidebar.jsx` removed; new `components/TopNav.jsx` replaces it inside
+    `App.jsx`  —  sticky top row with "ETF Simulator" wordmark (accent
+    candlestick mark), nav links Home / ETFs / News / Simulator / Strategies,
+    active tab = accent text + 2px accent bottom border, mobile = horizontally
+    scrollable link row.
+  - H6: custom `pages/NotFound.jsx` (the old `*` route's `Navigate` to "/" was
+    replaced by a real 404 page).
+  - H5: new `hooks/usePageTitle.js` applied to all six routes (per-page
+    `<title>`; verified headless: "Home  —  ETF Simulator", "Page not found  — 
+    ETF Simulator"); `index.html` gained meta description, `theme-color
+    #0a0a0a`, Open Graph tags, and `public/og-image.png` (a real desktop Home
+    screenshot); `public/favicon.svg` restyled to the accent candlestick.
+  - H7: Edge `--enable-logging=stderr` on all six routes  —  zero page console
+    errors (only Edge-internal sync/oneauth noise). No app-level warnings.
+  - H8: `vite.config.js` sets `build.sourcemap: false`; all route components
+    are `React.lazy` + one `Suspense`. Bundle before (Stage F build): single
+    670.87 kB JS (gzip 199.90 kB) + 18.57 kB CSS with a >500 kB chunk warning.
+    After: entry `index` 267.41 kB (gzip 85.62) + split Recharts chunk 353.19 kB
+    (loaded only with chart pages) + small lazy route chunks (Home 9.45, Etfs
+    5.52, News 5.23, Simulator 29.73, Strategies 1.13, NotFound 0.83); chunk
+    warning gone.
+  - H9: Home gained an `sr-only` h1 (one h1 per page now across all routes,
+    verified by DOM count); charts wrapped in `role="img"` + aria-label
+    (Home price chart, Simulator growth fan + crisis replay). Landmarks:
+    single `<main>`, `nav aria-label="Primary"`.
+  - H2/H4 (verify-then-fix): no Sidebar "Phase 4.7" footer remains after H3;
+    the "stray annotation at 2002-09-17 (56.68)" on the Home chart does NOT
+    reproduce as a persistent element  —  full DOM render shows only the hidden
+    Recharts tooltip wrapper (`visibility: hidden`) at rest; the text appears
+    only transiently while hovering the first data point (correct tooltip
+    behavior), so no structural change was made.
+- **Files changed:** `src/App.jsx`, `src/pages/Home.jsx`, `src/pages/Etfs.jsx`,
+  `src/pages/Simulator.jsx`, `src/pages/FinancialNews.jsx`,
+  `src/pages/InvestingStrategies.jsx` (reworded "later phase"  —  "coming
+  soon"), new `src/components/TopNav.jsx`, `src/hooks/usePageTitle.js`,
+  `src/pages/NotFound.jsx`, deleted `src/components/Sidebar.jsx`, `index.html`,
+  `public/favicon.svg`, `public/og-image.png`, `vite.config.js`,
+  `docs/screenshots/round3/` (5 pages + 404 at 1440A-900 and 5 at 390A-844).
+- **Evidence:** `npm run lint` (oxlint) clean; `npm run build` clean;
+  headless DOM checks confirm wordmark + five nav links + active-tab classes,
+  one h1 and one `<main>` per page, dynamic `<title>` on Home and 404, and no
+  console errors. Backend suite unaffected (150 passed).

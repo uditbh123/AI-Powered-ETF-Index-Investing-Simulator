@@ -1,6 +1,9 @@
 import { Lightbulb } from 'lucide-react'
+import { usePageTitle } from '../hooks/usePageTitle'
 
 export default function InvestingStrategies() {
+  usePageTitle('Investing Strategies — ETF Simulator')
+
   return (
     <div className="space-y-4">
       <div>
@@ -17,7 +20,7 @@ export default function InvestingStrategies() {
           <Lightbulb size={20} strokeWidth={1.6} />
         </span>
         <p className="max-w-prose text-sm text-ink-soft">
-          Strategy library coming in a later phase.
+          Strategy library coming soon.
         </p>
       </div>
     </div>

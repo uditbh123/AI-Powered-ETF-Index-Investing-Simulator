@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Newspaper, Clock, TrendingDown, TrendingUp } from 'lucide-react'
 import { fetchJSON } from '../api'
+import { usePageTitle } from '../hooks/usePageTitle'
 
 const CATEGORIES = [
   { value: 'sector', label: 'Sector' },
@@ -20,6 +21,8 @@ function scoreTone(score) {
 }
 
 export default function FinancialNews() {
+  usePageTitle('Financial News — ETF Simulator')
+
   const [category, setCategory] = useState('sector')
   const [days, setDays] = useState(30)
   const [feed, setFeed] = useState(null)

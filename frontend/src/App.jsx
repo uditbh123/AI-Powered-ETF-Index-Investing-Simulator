@@ -1,42 +1,55 @@
-import { Navigate, Route, Routes, useLocation } from 'react-router-dom'
-import Sidebar from './components/Sidebar'
+import { lazy, Suspense } from 'react'
+import { Route, Routes, useLocation } from 'react-router-dom'
+import TopNav from './components/TopNav'
 import DisclaimerBanner from './components/DisclaimerBanner'
 import AmbientDataGrid from './components/AmbientDataGrid'
-import Home from './pages/Home'
-import Simulator from './pages/Simulator'
-import Etfs from './pages/Etfs'
-import FinancialNews from './pages/FinancialNews'
-import InvestingStrategies from './pages/InvestingStrategies'
+
+const Home = lazy(() => import('./pages/Home'))
+const Etfs = lazy(() => import('./pages/Etfs'))
+const FinancialNews = lazy(() => import('./pages/FinancialNews'))
+const Simulator = lazy(() => import('./pages/Simulator'))
+const InvestingStrategies = lazy(() => import('./pages/InvestingStrategies'))
+const NotFound = lazy(() => import('./pages/NotFound'))
+
+function PageLoader() {
+  return (
+    <div className="panel px-4 py-14">
+      <p className="text-sm text-ink-soft">Loading…</p>
+    </div>
+  )
+}
 
 function App() {
   const { pathname } = useLocation()
   const isDashboard = pathname === '/'
 
   return (
-    <div className="relative flex h-screen overflow-hidden">
+    <div className="relative flex h-screen flex-col overflow-hidden">
       <AmbientDataGrid />
-      <Sidebar />
+      <TopNav />
 
-      <div className="flex min-w-0 flex-1 flex-col">
-        <header className="shrink-0 bg-base">
-          <DisclaimerBanner />
-        </header>
+      <header className="shrink-0 bg-base">
+        <DisclaimerBanner />
+      </header>
 
-        <main
-          className={isDashboard ? 'flex-1 overflow-hidden' : 'flex-1 overflow-y-auto'}
-        >
-          <div className={isDashboard ? 'h-full' : 'mx-auto max-w-7xl px-6 py-5'}>
+      <main
+        className={
+          isDashboard ? 'min-h-0 flex-1 overflow-hidden' : 'min-h-0 flex-1 overflow-y-auto'
+        }
+      >
+        <div className={isDashboard ? 'h-full' : 'mx-auto max-w-7xl px-6 py-5'}>
+          <Suspense fallback={<PageLoader />}>
             <Routes>
               <Route path="/" element={<Home />} />
               <Route path="/etfs" element={<Etfs />} />
               <Route path="/simulator" element={<Simulator />} />
               <Route path="/news" element={<FinancialNews />} />
               <Route path="/strategies" element={<InvestingStrategies />} />
-              <Route path="*" element={<Navigate to="/" replace />} />
+              <Route path="*" element={<NotFound />} />
             </Routes>
-          </div>
-        </main>
-      </div>
+          </Suspense>
+        </div>
+      </main>
     </div>
   )
 }

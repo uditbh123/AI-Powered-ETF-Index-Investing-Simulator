@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { ArrowDown, ArrowUp, ArrowUpDown, BarChart3 } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { fetchJSON } from '../api'
+import { usePageTitle } from '../hooks/usePageTitle'
 
 const COLUMNS = [
   { key: 'symbol', label: 'Symbol', align: 'left', kind: 'symbol' },
@@ -62,6 +63,8 @@ function SortIcon({ column, sortKey, sortDir }) {
 }
 
 export default function Etfs() {
+  usePageTitle('ETF Screener — ETF Simulator')
+
   const [rows, setRows] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)

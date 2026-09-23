@@ -23,6 +23,7 @@ import {
   Wallet,
 } from 'lucide-react'
 import { fetchJSON } from '../api'
+import { usePageTitle } from '../hooks/usePageTitle'
 
 const DEFAULT_HOLDINGS = [{ symbol: 'SPY', weight: 100 }]
 
@@ -156,6 +157,8 @@ function ToggleSwitch({ checked, onChange, title, subtitle }) {
 }
 
 export default function Simulator() {
+  usePageTitle('Simulator — ETF Simulator')
+
   const { search } = useLocation()
   const [tickers, setTickers] = useState([])
   const [name, setName] = useState('My Portfolio')
@@ -479,6 +482,11 @@ export default function Simulator() {
                   </span>
                 </div>
                 <div className="h-[380px] px-2 py-3">
+                  <div
+                    className="h-full w-full"
+                    role="img"
+                    aria-label={`Projected portfolio growth fan chart over ${horizonYears} years with monthly contributions of ${formatCurrency(contribution)}`}
+                  >
                   <ResponsiveContainer width="100%" height="100%">
                     <ComposedChart data={chartData} margin={{ top: 8, right: 16, bottom: 8, left: 8 }}>
                       <CartesianGrid stroke="var(--chart-grid)" strokeDasharray="3 3" vertical={false} />
@@ -519,6 +527,7 @@ export default function Simulator() {
                       />
                     </ComposedChart>
                   </ResponsiveContainer>
+                  </div>
                 </div>
               </div>
 
@@ -590,6 +599,11 @@ export default function Simulator() {
                         </span>
                       </div>
                       <div className="h-[260px]">
+                        <div
+                          className="h-full w-full"
+                          role="img"
+                          aria-label={`Crisis scenario replay chart comparing median portfolio value against a baseline buy-and-hold during ${crisisLabel(crisisData.crisis)}`}
+                        >
                         <ResponsiveContainer width="100%" height="100%">
                           <ComposedChart
                             data={crisisChart}
@@ -649,6 +663,7 @@ export default function Simulator() {
                             />
                           </ComposedChart>
                         </ResponsiveContainer>
+                        </div>
                       </div>
                     </div>
                   )}

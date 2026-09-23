@@ -10,6 +10,7 @@ import {
 } from 'recharts'
 import { Search } from 'lucide-react'
 import { fetchJSON } from '../api'
+import { usePageTitle } from '../hooks/usePageTitle'
 
 const RECENT_POINTS = 30
 
@@ -158,6 +159,8 @@ function PriceTooltip({ active, payload, label, symbol }) {
 }
 
 export default function Home() {
+  usePageTitle('Home — ETF Simulator')
+
   const [tickers, setTickers] = useState([])
   const [seriesBySymbol, setSeriesBySymbol] = useState({})
   const [activeSymbol, setActiveSymbol] = useState(null)
@@ -259,6 +262,7 @@ export default function Home() {
 
   return (
     <div className="flex h-full min-h-0 flex-col overflow-y-auto lg:flex-row lg:overflow-hidden">
+      <h1 className="sr-only">Market dashboard</h1>
       {/* ---- Primary chart pane ---- */}
       <section className="flex min-h-[460px] min-w-0 flex-1 flex-col border-b border-white/10 lg:min-h-0 lg:border-b-0 lg:border-r">
         <div className="flex flex-wrap items-center gap-x-5 gap-y-2 px-4 pb-3 pt-2.5">
@@ -337,7 +341,12 @@ export default function Home() {
               {chartError}
             </div>
           ) : chartData.length ? (
-            <ResponsiveContainer width="100%" height="100%">
+            <div
+              className="h-full w-full"
+              role="img"
+              aria-label={`Price history chart for ${activeSymbol ?? 'the selected instrument'}`}
+            >
+              <ResponsiveContainer width="100%" height="100%">
               <AreaChart
                 data={chartData}
                 margin={{ top: 8, right: 12, bottom: 4, left: 0 }}
@@ -381,7 +390,8 @@ export default function Home() {
                   activeDot={{ r: 3, fill: 'var(--chart-line)' }}
                 />
               </AreaChart>
-            </ResponsiveContainer>
+              </ResponsiveContainer>
+            </div>
           ) : (
             <div className="flex h-full items-center justify-center text-sm text-ink-faint">
               No price history for this instrument.
