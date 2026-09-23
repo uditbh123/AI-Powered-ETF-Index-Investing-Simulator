@@ -6,6 +6,7 @@ engine's per-period contribution aligns with monthly investing.
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import sqlite3
 from collections.abc import Sequence
@@ -174,6 +175,15 @@ def run_portfolio_simulation(
         volatility_multiplier=volatility_multiplier,
         sentiment_score=sentiment_score,
     )
+
+    # The cached results are derived from the stored prices, which the daily
+    # ingest rewrites on the current adjusted-close basis. Keying the cache on
+    # parameters alone would serve a run computed from yesterday's prices
+    # forever. Derive the portfolio return series BEFORE the cache lookup and
+    # fold a fingerprint of it into the key so any price change invalidates.
+    returns = portfolio_monthly_returns(conn, holdings)
+    fingerprint = hashlib.sha1(returns.tobytes()).hexdigest()[:12]
+    params["data_fingerprint"] = fingerprint
     params_json = json.dumps(params, sort_keys=True)
 
     cached_run = simulation_dao.find_cached_run(conn, portfolio_id, params_json)
@@ -191,7 +201,6 @@ def run_portfolio_simulation(
             cached=True,
         )
 
-    returns = portfolio_monthly_returns(conn, holdings)
     result = monte_carlo.run_simulation(
         returns,
         initial_balance=initial_balance,

@@ -10,19 +10,34 @@ def upsert_daily_prices(
     ticker_id: int,
     rows: Iterable[tuple[str, float, int | None]],
 ) -> int:
-    """Insert daily (date, close, volume) rows, skipping existing dates.
+    """Insert daily (date, close, volume) rows, rewriting any that exist.
 
-    Relies on the UNIQUE(ticker_id, date) constraint, so a daily re-pull only
-    ever adds new trading days. Returns the number of rows actually inserted.
+    Relies on the UNIQUE(ticker_id, date) constraint. A conflict does NOT
+    silently skip the existing row: adjusted closes are re-scaled by Yahoo at
+    every dividend/split (``auto_adjust=True``), so a re-fetch must overwrite
+    the stored value with the current adjustment basis or the series mixes
+    bases. Returns the number of rows that were genuinely NEW dates (existing
+    rows rewritten on conflict are not counted).
     """
-    cur = conn.executemany(
+    rows = list(rows)
+    existing = {
+        row["date"]
+        for row in conn.execute(
+            "SELECT date FROM prices WHERE ticker_id = ?", (ticker_id,)
+        )
+    }
+    inserted = sum(1 for date, _, _ in rows if date not in existing)
+    conn.executemany(
         """
-        INSERT OR IGNORE INTO prices (ticker_id, date, close, volume)
+        INSERT INTO prices (ticker_id, date, close, volume)
         VALUES (?, ?, ?, ?)
+        ON CONFLICT(ticker_id, date) DO UPDATE SET
+            close = excluded.close,
+            volume = excluded.volume
         """,
         [(ticker_id, date, close, volume) for date, close, volume in rows],
     )
-    return cur.rowcount
+    return inserted
 
 
 def get_price_history(

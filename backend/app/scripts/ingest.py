@@ -3,7 +3,6 @@
 Usage (from backend/):
     python -m app.scripts.ingest
     python -m app.scripts.ingest --symbols SPY QQQ --start 2020-01-01
-    python -m app.scripts.ingest --no-scheduler   # just refresh once, don't start APScheduler
 """
 from __future__ import annotations
 

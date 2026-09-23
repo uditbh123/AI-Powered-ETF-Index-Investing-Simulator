@@ -31,6 +31,29 @@ def test_upsert_catalog_seeds_and_is_idempotent(db):
     assert again == {"created": 0, "existing": len(DEFAULT_TICKERS)}
 
 
+def test_upsert_daily_prices_rewrites_existing_dates(db):
+    """Re-fetching with adjusted-close changes must overwrite stored rows."""
+    ticker = ticker_dao.get_or_create_ticker(db, "SPY")
+    price_dao.upsert_daily_prices(
+        db, ticker["id"], [("2024-01-02", 100.0, 1_000_000)]
+    )
+
+    count = price_dao.upsert_daily_prices(
+        db,
+        ticker["id"],
+        [
+            ("2024-01-02", 95.5, 1_500_000),  # old date, new adjusted close
+            ("2024-01-03", 97.0, 900_000),    # genuinely new date
+        ],
+    )
+    assert count == 1  # only the new date counts as inserted
+
+    history = price_dao.get_price_history(db, ticker["id"])
+    assert history[0]["close"] == 95.5
+    assert history[0]["volume"] == 1_500_000
+    assert len(history) == 2
+
+
 def test_upsert_daily_prices_skips_existing_dates(db):
     ticker = ticker_dao.get_or_create_ticker(db, "SPY")
     rows = [("2024-01-02", 100.0, 1_000_000), ("2024-01-03", 101.5, 1_200_000)]
@@ -39,7 +62,7 @@ def test_upsert_daily_prices_skips_existing_dates(db):
     assert first == 2
 
     dup = price_dao.upsert_daily_prices(db, ticker["id"], rows + [("2024-01-04", 102.0, 900_000)])
-    assert dup == 1  # both existing dates ignored, only the new date inserted
+    assert dup == 1  # existing dates rewritten, only the new date counted
 
 
 def test_get_price_history_range_and_order(db):

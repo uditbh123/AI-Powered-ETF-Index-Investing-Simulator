@@ -50,7 +50,7 @@ def fake_fetcher(frames: dict[str, pd.DataFrame]):
 # fetch_history defaults
 # ---------------------------------------------------------------------------
 
-def test_fetch_history_requests_full_history_when_no_start(monkeypatch):
+def test_fetch_history_requests_full_history_when_no_bounds(monkeypatch):
     import yfinance as yf
 
     captured = {}
@@ -64,6 +64,29 @@ def test_fetch_history_requests_full_history_when_no_start(monkeypatch):
     fetch_history("SPY")
     assert captured["kwargs"].get("period") == "max"
     assert "start" not in captured["kwargs"]
+    assert "end" not in captured["kwargs"]
+
+
+def test_fetch_history_end_without_start_never_passes_period(monkeypatch):
+    """`end` must be honored even when `start` is None.
+
+    yfinance gives `period` precedence over `end`, so combining period="max"
+    with end= would silently drop the end bound. We pin start to a sentinel
+    instead and pass no period.
+    """
+    import yfinance as yf
+
+    captured = {}
+
+    def fake_download(*args, **kwargs):
+        captured["kwargs"] = kwargs
+        return pd.DataFrame()
+
+    monkeypatch.setattr(yf, "download", fake_download)
+    fetch_history("SPY", end="2024-06-01")
+    assert captured["kwargs"]["start"] == "1900-01-01"
+    assert captured["kwargs"]["end"] == "2024-06-01"
+    assert "period" not in captured["kwargs"]
 
 
 def test_fetch_history_forwards_explicit_start(monkeypatch):
@@ -79,6 +102,7 @@ def test_fetch_history_forwards_explicit_start(monkeypatch):
     fetch_history("SPY", start="2020-01-01", end="2020-06-01")
     assert captured["kwargs"]["start"] == "2020-01-01"
     assert captured["kwargs"]["end"] == "2020-06-01"
+    assert "period" not in captured["kwargs"]
 
 
 # ---------------------------------------------------------------------------

@@ -18,7 +18,15 @@ _SCHEDULER_JOB_ID = "daily_market_refresh"
 
 
 def _scheduled_refresh() -> None:
-    """Wrapper so APScheduler calls the refresh and logs on failure."""
+    """Wrapper so APScheduler calls the refresh and logs on failure.
+
+    This must refresh FULL price history (no ``start``) on every run.
+    ``auto_adjust=True`` makes Yahoo re-scale the whole adjusted-close series
+    at each new dividend/split, so a partial (``start``-bounded) refresh would
+    join rows on an old adjustment basis to rows on a new one, creating phantom
+    jumps at the boundary in the stored series. A full pull lets the upsert
+    overwrite every row on the current basis (see ``upsert_daily_prices``).
+    """
     log.info("Scheduled daily market-data refresh started.")
     try:
         results = refresh_catalog()

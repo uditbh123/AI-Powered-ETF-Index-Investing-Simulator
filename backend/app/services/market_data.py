@@ -31,17 +31,21 @@ def fetch_history(
 ) -> pd.DataFrame:
     """Download daily OHLCV history for a single symbol via yfinance.
 
-    With no explicit start date, requests the full available history: yfinance
+    With no explicit bounds, requests the full available history: yfinance
     defaults to only one month when both period and start are omitted, so we
     explicitly pass ``period="max"``.
+
+    ``end`` must never be combined with ``period``: yfinance gives ``period``
+    precedence and would silently ignore ``end``. When only ``end`` is given
+    (``start`` is None) we pin ``start`` to a sentinel well before any real
+    market history so both bounds are honored.
     """
     import yfinance as yf  # lazy: keep yfinance optional at import time
 
-    if start is None:
+    if start is None and end is None:
         return yf.download(
             symbol,
             period="max",
-            end=end,
             interval="1d",
             auto_adjust=True,
             progress=False,
@@ -49,7 +53,7 @@ def fetch_history(
         )
     return yf.download(
         symbol,
-        start=start,
+        start="1900-01-01" if start is None else start,
         end=end,
         interval="1d",
         auto_adjust=True,
