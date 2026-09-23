@@ -187,3 +187,31 @@ windows, month-end inclusive:
   overlapping monthly history, otherwise the endpoint returns 400 naming the
   crisis and the reason (e.g. "instruments launched after the crisis window
   ended").
+
+## Distribution statistics
+
+_Source: `compute_distribution_stats` in `app/simulation/monte_carlo.py`,
+computed at run time and persisted on `simulation_runs.stats_json` (added as a
+forward-compatible `ALTER TABLE` migration via `ensure_column` in
+`app/database.py`; legacy runs have `stats_json = NULL` and the API's `stats`
+field is `null` for them)._
+
+Every simulation response now carries a `stats` object summarizing the full
+`n_simulations` final-value distribution (not just the three percentile bands):
+
+| Statistic | Definition |
+|-----------|-----------|
+| `total_contributed` | Book value: `initial_balance + monthly_contribution · horizon_months`. |
+| `probability_of_profit` | Fraction of paths ending **above** `total_contributed`. |
+| `final_percentiles` | `p10 / p25 / p50 / p75 / p90` of the final values (`np.percentile`, linear). |
+| `median_max_drawdown` | Median over paths of each path's peak-to-end drawdown `value/cummax − 1`. |
+| `upside_downside_ratio` | `(p90 − total_contributed) / (total_contributed − p10)`; `null` when `p10 ≥ total_contributed` (all risk is downside-free). |
+| `histogram` | 20 equal-width bins of final values: `bin_edges` (21) + `counts` (20). |
+
+**Drawdown caveat.** `median_max_drawdown` is measured on the *portfolio*
+trajectory, which includes contributions. Each deposit raises the running peak
+that later drawdowns are measured from, so ongoing contributions
+proportionally **dampen** the reported magnitudes — it is *not* the drawdown a
+buy-and-hold investor in the underlying index would have seen. Months before
+any money is in the portfolio (zero initial balance) contribute a drawdown of
+exactly 0, never NaN.

@@ -191,6 +191,83 @@ def path_percentiles(
     return np.percentile(paths, list(levels), axis=0)
 
 
+def compute_distribution_stats(
+    paths: np.ndarray,
+    initial_balance: float,
+    monthly_contribution: float = 0.0,
+    horizon_months: int = 120,
+) -> dict:
+    """Summarize a simulated final-value distribution into actionable stats.
+
+    ``paths`` is the (n_simulations, n_steps) matrix produced by
+    :func:`simulate_paths`. ``total_contributed`` is the book value (initial
+    balance plus all monthly contributions) and is the baseline every outcome
+    is compared against: ``probability_of_profit`` is the fraction of paths
+    that end above it and ``upside_downside_ratio`` compares the 90th
+    percentile gain against the 10th percentile loss.
+
+    ``median_max_drawdown`` is the median over paths of each path's peak-to-end
+    drawdown. It is computed on the *portfolio* trajectory, so contributions
+    proportionally dampen it (every deposit raises the running peak that later
+    drawdowns are measured from); it is therefore not the drawdown a
+    buy-and-hold investor in the underlying index would have seen.
+
+    ``histogram`` buckets the final values into 20 equal-width bins, returning
+    the bin edges and counts for a distribution chart. All outputs are
+    JSON-serializable.
+    """
+    paths = np.asarray(paths, dtype=float)
+    if paths.ndim != 2:
+        raise ValueError(f"Expected a 2-D paths matrix, got shape {paths.shape}")
+    if initial_balance < 0:
+        raise ValueError("initial_balance must be >= 0")
+    if monthly_contribution < 0:
+        raise ValueError("monthly_contribution must be >= 0")
+    if horizon_months < 1:
+        raise ValueError("horizon_months must be >= 1")
+
+    total_contributed = float(initial_balance) + float(monthly_contribution) * horizon_months
+
+    finals = paths[:, -1]
+
+    p10, p25, p50, p75, p90 = np.percentile(finals, [10, 25, 50, 75, 90])
+    final_percentiles = {
+        "p10": float(p10),
+        "p25": float(p25),
+        "p50": float(p50),
+        "p75": float(p75),
+        "p90": float(p90),
+    }
+
+    running_peak = np.maximum.accumulate(paths, axis=1)
+    with np.errstate(invalid="ignore", divide="ignore"):
+        drawdowns = paths / running_peak - 1.0
+    # Months before any money is in the portfolio (initial balance 0) have a
+    # zero running peak; the drawdown there is exactly 0, not NaN.
+    drawdowns = np.where(running_peak > 0, drawdowns, 0.0)
+    median_max_drawdown = float(np.median(drawdowns.min(axis=1)))
+
+    downside = total_contributed - float(p10)
+    upside_downside_ratio = (
+        (float(p90) - total_contributed) / downside if downside > 0.0 else None
+    )
+
+    counts, bin_edges = np.histogram(finals, bins=20)
+    histogram = {
+        "bin_edges": bin_edges.tolist(),
+        "counts": [int(c) for c in counts],
+    }
+
+    return {
+        "total_contributed": total_contributed,
+        "probability_of_profit": float(np.mean(finals > total_contributed)),
+        "final_percentiles": final_percentiles,
+        "median_max_drawdown": median_max_drawdown,
+        "upside_downside_ratio": upside_downside_ratio,
+        "histogram": histogram,
+    }
+
+
 @dataclass
 class ValidationReport:
     """Comparison of simulated returns against the historical sample."""
@@ -330,6 +407,7 @@ __all__ = [
     "scale_returns_volatility",
     "simulate_paths",
     "path_percentiles",
+    "compute_distribution_stats",
     "validate_bootstrap",
     "run_simulation",
     "ValidationReport",

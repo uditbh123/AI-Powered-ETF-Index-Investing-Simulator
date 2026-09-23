@@ -254,3 +254,40 @@ evidence from the test suite is included.
   headless DOM checks confirm wordmark + five nav links + active-tab classes,
   one h1 and one `<main>` per page, dynamic `<title>` on Home and 404, and no
   console errors. Backend suite unaffected (150 passed).
+
+## Stage I  —  Insights statistics backend (distribution stats + monthly returns)
+- **What changed:** backend-only; no frontend files touched.
+  - I1: `compute_distribution_stats(paths, initial_balance, monthly_contribution,
+    horizon_months)` added to `app/simulation/monte_carlo.py`  —  a pure,
+    vectorized summary over the full final-value distribution:
+    `total_contributed`, `probability_of_profit`, `final_percentiles`
+    (p10/p25/p50/p75/p90), `median_max_drawdown` (median peak-to-end drawdown;
+    zero months with a zero running peak never emit NaN; docstring notes that
+    contributions proportionally dampen the reported magnitude), and
+    `upside_downside_ratio` = (p90 - contributed) / (contributed - p10), `null`
+    when p10 >= contributed, plus a 20-bin histogram. Exported via
+    `app/simulation/__init__.py`.
+  - I2: `simulation_runs.stats_json TEXT` added to `schema.sql` and
+    forward-migrated onto existing databases by a new `ensure_column()`
+    helper in `app/database.py` (SQLite has no `ADD COLUMN IF NOT EXISTS`;
+    checked against `PRAGMA table_info`, idempotent, called from `init_db`).
+    Stats are computed in `run_portfolio_simulation` from the full simulated
+    paths, rounded for compact JSON, stored on the run, and served as an
+    additive `stats` field in every simulation response (fresh, cached, and
+    `GET /simulation-runs/{id}`). Legacy rows and pre-stats caches have
+    `stats_json = NULL`  —  the API returns `stats: null` for them.
+  - I3: new `GET /portfolios/{id}/monthly-returns`
+    (`app/routers/portfolios.py`, backed by the existing
+    `portfolio_monthly_returns_with_dates` service)  —  `[{year, month, return}]`
+    of the weighted portfolio monthly returns, 404 for a missing portfolio, 400
+    for no holdings / insufficient overlapping history.
+- **Files changed:** `schema.sql`, `app/database.py`, `app/dao/simulations.py`,
+  `app/services/simulation.py`, `app/routers/portfolios.py`,
+  `app/simulation/monte_carlo.py`, `app/simulation/__init__.py`,
+  `tests/test_distribution_stats.py` (new, 10 tests incl. hand-computed
+  p10/p25/p50/p75/p90, 0.75 probability, ratio numbers/null cases, NaN-free zero
+  initial balance), `tests/test_insights_api.py` (new, 5 tests: stats shape +
+  consistency, cached-stats equality, legacy-null served, monthly-returns shape
+  + 404 + 400), `tests/test_database.py` (2 migration tests), and the new
+  "Distribution statistics" section in `docs/data_methodology.md`.
+- **Test evidence:** `150 -> 168 passed`. Commit pending.

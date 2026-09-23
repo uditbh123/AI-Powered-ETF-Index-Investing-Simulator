@@ -9,6 +9,7 @@ from ..dao import portfolios as portfolio_dao
 from ..dao import tickers as ticker_dao
 from ..deps import get_db
 from ..schemas import PortfolioCreate, PortfolioOut
+from ..services.simulation import portfolio_monthly_returns_with_dates
 
 router = APIRouter(tags=["portfolios"])
 
@@ -78,6 +79,38 @@ def get_portfolio(
         monthly_contribution=row["monthly_contribution"],
         holdings=[{"symbol": h["symbol"], "weight": h["weight"]} for h in holdings],
     )
+
+
+@router.get("/portfolios/{portfolio_id}/monthly-returns")
+def get_portfolio_monthly_returns(
+    portfolio_id: int,
+    conn: sqlite3.Connection = Depends(get_db),
+) -> list[dict]:
+    """Return the portfolio's realized monthly returns as {year, month, return}.
+
+    Year/month are the calendar period of each month-end return; ``return`` is
+    the weighted portfolio return for that month (see
+    :func:`portfolio_monthly_returns_with_dates`). Raises 404 for a missing
+    portfolio and 400 when there is not enough overlapping history.
+    """
+    row = portfolio_dao.get_portfolio(conn, portfolio_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="portfolio not found")
+    holdings = portfolio_dao.list_holdings(conn, portfolio_id)
+    if not holdings:
+        raise HTTPException(status_code=400, detail="portfolio has no holdings")
+    try:
+        dates, returns = portfolio_monthly_returns_with_dates(conn, holdings)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return [
+        {
+            "year": int(date[:4]),
+            "month": int(date[5:7]),
+            "return": round(float(value), 6),
+        }
+        for date, value in zip(dates, returns, strict=True)
+    ]
 
 
 @router.delete("/portfolios/{portfolio_id}", status_code=204)

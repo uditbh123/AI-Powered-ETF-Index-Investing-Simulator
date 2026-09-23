@@ -41,6 +41,29 @@ def init_db() -> None:
 
     with get_connection() as conn:
         conn.executescript(DB_SCHEMA_PATH.read_text(encoding="utf-8"))
+        # Forward-compatible column migration for pre-existing databases that
+        # lack the newest schema columns (SQLite has no ALTER TABLE ... ADD
+        # COLUMN IF NOT EXISTS).
+        ensure_column(conn, "simulation_runs", "stats_json", "TEXT")
+
+
+def ensure_column(
+    conn: sqlite3.Connection,
+    table: str,
+    column: str,
+    declaration: str,
+) -> None:
+    """Add ``column`` to ``table`` if it does not already exist.
+
+    SQLite cannot express ``ADD COLUMN IF NOT EXISTS``, so check
+    ``PRAGMA table_info`` first. Safe to call repeatedly (idempotent).
+    """
+    existing = {
+        row["name"]
+        for row in conn.execute(f"PRAGMA table_info({table})").fetchall()
+    }
+    if column not in existing:
+        conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {declaration}")
 
 
 def check_db_connected() -> bool:

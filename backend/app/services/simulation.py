@@ -121,6 +121,46 @@ def canonical_params(
     }
 
 
+def _rounded_stats(stats: dict[str, Any]) -> dict[str, Any]:
+    """Round a compute_distribution_stats dict for compact JSON storage.
+
+    Histogram bins round to 2dp (small rounding gaps in edge spacing are
+    visually irrelevant); probabilities/ratios keep 4dp so small signals are
+    not lost.
+    """
+
+    def _two(v: float | None) -> float | None:
+        return None if v is None else round(float(v), 2)
+
+    return {
+        "total_contributed": round(float(stats["total_contributed"]), 2),
+        "probability_of_profit": round(float(stats["probability_of_profit"]), 4),
+        "final_percentiles": {
+            k: _two(v) for k, v in stats["final_percentiles"].items()
+        },
+        "median_max_drawdown": _two(stats["median_max_drawdown"]),
+        "upside_downside_ratio": (
+            None
+            if stats["upside_downside_ratio"] is None
+            else round(float(stats["upside_downside_ratio"]), 4)
+        ),
+        "histogram": {
+            "bin_edges": [
+                round(float(e), 2) for e in stats["histogram"]["bin_edges"]
+            ],
+            "counts": list(stats["histogram"]["counts"]),
+        },
+    }
+
+
+def _stats_from_run(run: sqlite3.Row | dict[str, Any]) -> dict[str, Any] | None:
+    """Decode a run's stored stats_json, or None for legacy runs without it."""
+    raw = run["stats_json"]
+    if raw is None:
+        return None
+    return json.loads(raw)
+
+
 def _assemble_response(
     run_id: int,
     portfolio_id: int,
@@ -129,6 +169,7 @@ def _assemble_response(
     levels: list[float],
     trajectories: list[list[float]],
     cached: bool,
+    stats: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     finals = [path[-1] for path in trajectories]
     multiplier = float(params.get("volatility_multiplier", 1.0))
@@ -139,6 +180,7 @@ def _assemble_response(
         "created_at": created_at,
         "cached": cached,
         "params": params,
+        "stats": stats,
         "sentiment": {
             "applied": bool(params.get("use_sentiment")) and multiplier != 1.0,
             "score": params.get("sentiment_score"),
@@ -227,6 +269,7 @@ def run_portfolio_simulation(
             levels=levels,
             trajectories=trajectories,
             cached=True,
+            stats=_stats_from_run(cached_run),
         )
 
     result = monte_carlo.run_simulation(
@@ -240,7 +283,14 @@ def run_portfolio_simulation(
         volatility_multiplier=volatility_multiplier,
     )
 
-    run_id = simulation_dao.create_run(conn, portfolio_id, params_json)
+    stats = monte_carlo.compute_distribution_stats(
+        result["paths"],
+        initial_balance=initial_balance,
+        monthly_contribution=monthly_contribution,
+        horizon_months=horizon_months,
+    )
+    stats_json = json.dumps(_rounded_stats(stats), sort_keys=True)
+    run_id = simulation_dao.create_run(conn, portfolio_id, params_json, stats_json=stats_json)
     levels_list = result["percentile_levels"]
     trajectories = [
         [round(float(x), 2) for x in path] for path in result["percentiles"]
@@ -258,6 +308,7 @@ def run_portfolio_simulation(
         levels=levels_list,
         trajectories=trajectories,
         cached=False,
+        stats=_stats_from_run(simulation_dao.get_run(conn, run_id)),
     )
 
 
@@ -280,6 +331,7 @@ def get_run_response(conn: sqlite3.Connection, run_id: int) -> dict[str, Any] | 
         levels=levels,
         trajectories=trajectories,
         cached=True,
+        stats=_stats_from_run(run),
     )
 
 

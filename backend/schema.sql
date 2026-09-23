@@ -46,6 +46,7 @@ CREATE TABLE IF NOT EXISTS simulation_runs (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
     portfolio_id INTEGER NOT NULL REFERENCES portfolios(id),
     params_json TEXT    NOT NULL,
+    stats_json  TEXT,                             -- distribution summary (nullable for legacy runs)
     created_at  TEXT    NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 

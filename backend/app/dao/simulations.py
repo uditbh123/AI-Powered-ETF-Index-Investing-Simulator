@@ -5,18 +5,26 @@ import sqlite3
 from collections.abc import Iterable
 
 
-def create_run(conn: sqlite3.Connection, portfolio_id: int, params_json: str) -> int:
+def create_run(
+    conn: sqlite3.Connection,
+    portfolio_id: int,
+    params_json: str,
+    stats_json: str | None = None,
+) -> int:
     cur = conn.execute(
-        "INSERT INTO simulation_runs (portfolio_id, params_json) VALUES (?, ?)",
-        (portfolio_id, params_json),
+        "INSERT INTO simulation_runs (portfolio_id, params_json, stats_json) "
+        "VALUES (?, ?, ?)",
+        (portfolio_id, params_json, stats_json),
     )
     return cur.lastrowid
 
 
+_RUN_COLUMNS = "id, portfolio_id, params_json, stats_json, created_at"
+
+
 def get_run(conn: sqlite3.Connection, run_id: int) -> sqlite3.Row | None:
     return conn.execute(
-        "SELECT id, portfolio_id, params_json, created_at "
-        "FROM simulation_runs WHERE id = ?",
+        f"SELECT {_RUN_COLUMNS} " "FROM simulation_runs WHERE id = ?",
         (run_id,),
     ).fetchone()
 
@@ -28,7 +36,7 @@ def find_cached_run(
 ) -> sqlite3.Row | None:
     """Return the most recent run for a portfolio with identical parameters."""
     return conn.execute(
-        "SELECT id, portfolio_id, params_json, created_at "
+        f"SELECT {_RUN_COLUMNS} "
         "FROM simulation_runs WHERE portfolio_id = ? AND params_json = ? "
         "ORDER BY id DESC LIMIT 1",
         (portfolio_id, params_json),
@@ -37,7 +45,7 @@ def find_cached_run(
 
 def list_runs(conn: sqlite3.Connection, portfolio_id: int) -> list[sqlite3.Row]:
     return conn.execute(
-        "SELECT id, portfolio_id, params_json, created_at "
+        f"SELECT {_RUN_COLUMNS} "
         "FROM simulation_runs WHERE portfolio_id = ? ORDER BY id DESC",
         (portfolio_id,),
     ).fetchall()
