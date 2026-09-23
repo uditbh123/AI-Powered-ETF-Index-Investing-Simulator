@@ -54,6 +54,8 @@ export default function FinancialNews() {
       )
     ) : null
 
+  const otherCategory = category === 'sector' ? 'geopolitical' : 'sector'
+
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between gap-4">
@@ -61,7 +63,7 @@ export default function FinancialNews() {
           <h1 className="text-2xl font-semibold tracking-tight text-ink">
             Financial News
           </h1>
-          <p className="mt-1 text-sm text-ink-soft">
+          <p className="mt-1 max-w-prose text-sm text-ink-soft">
             Sector and geopolitical headlines scored by the FinBERT sentiment
             pipeline.
           </p>
@@ -74,15 +76,15 @@ export default function FinancialNews() {
         )}
       </div>
 
-      <div className="flex items-center justify-between gap-4">
-        <div className="flex gap-1 rounded-md border border-white/10 bg-white/[0.03] p-1">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex gap-1 border border-edge-subtle bg-white/5 p-1">
           {CATEGORIES.map((c) => (
             <button
               key={c.value}
               type="button"
               onClick={() => selectCategory(c.value)}
               className={[
-                'rounded px-2.5 py-1 text-[11px] font-medium uppercase tracking-[0.06em] transition-colors',
+                'px-2.5 py-1 text-xs font-medium uppercase tracking-widest transition-colors',
                 category === c.value
                   ? 'bg-white text-black'
                   : 'text-ink-soft hover:text-white',
@@ -99,7 +101,7 @@ export default function FinancialNews() {
               type="button"
               onClick={() => selectDays(option)}
               className={[
-                'rounded border border-white/10 px-2 py-1 font-mono text-[11px] transition-colors',
+                'border border-edge px-2 py-1 font-mono text-xs transition-colors',
                 days === option
                   ? 'border-white/50 bg-white/10 text-white'
                   : 'text-ink-soft hover:text-white',
@@ -113,48 +115,70 @@ export default function FinancialNews() {
 
       {!loading && !error && feed && (
         <div className="grid grid-cols-1 gap-4 lg:grid-cols-[220px_minmax(0,1fr)]">
-          <div className="panel flex flex-col items-center justify-center gap-2 px-4 py-8 text-center">
+          <div className="panel p-4">
             {scoreIcon || (
-              <span className="flex h-9 w-9 items-center justify-center rounded-full border border-edge bg-base-elevated text-ink-dim">
+              <span className="mb-3 flex h-9 w-9 items-center justify-center border border-edge bg-base-elevated text-ink-dim">
                 <Newspaper size={16} strokeWidth={1.6} />
               </span>
             )}
-            <span className="text-[11px] font-medium uppercase tracking-[0.06em] text-ink-faint">
+            <span className="block text-xs font-medium uppercase tracking-widest text-ink-faint">
               Aggregate sentiment
             </span>
             <span
-              className={`font-mono text-4xl tabular-nums ${
-                feed.aggregate_score === null ? 'text-ink-dim' : scoreTone(feed.aggregate_score)
+              className={`mt-1 block font-mono text-2xl tabular-nums ${
+                feed.aggregate_score === null
+                  ? 'text-ink-dim'
+                  : scoreTone(feed.aggregate_score)
               }`}
             >
               {formatScore(feed.aggregate_score)}
             </span>
-            <span className="text-[11px] leading-snug text-ink-dim">
+            <span className="mt-2 block text-xs leading-snug text-ink-dim">
               Mean of non-null sentiment scores · −1 (bearish) to +1 (bullish)
             </span>
           </div>
 
-          <div className="panel overflow-hidden">
+          <div className="panel">
             {feed.headlines.length === 0 ? (
-              <div className="flex flex-col items-center justify-center gap-3 px-6 py-16 text-center">
-                <span className="flex h-12 w-12 items-center justify-center rounded-full border border-edge bg-base-elevated text-ink-dim">
-                  <Newspaper size={20} strokeWidth={1.6} />
-                </span>
+              <div className="p-4">
                 <p className="text-sm text-ink-soft">
-                  No scored headlines in this window yet.
+                  No scored headlines in the last {days} days for{' '}
+                  {category} news.
                 </p>
+                <p className="mt-2 text-xs text-ink-faint">
+                  Widen the time window or switch category:
+                </p>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    className="btn"
+                    onClick={() => selectDays(90)}
+                  >
+                    Widen to 90 days
+                  </button>
+                  <button
+                    type="button"
+                    className="btn"
+                    onClick={() => selectCategory(otherCategory)}
+                  >
+                    Switch to {otherCategory} news
+                  </button>
+                </div>
               </div>
             ) : (
-              <div className="max-h-[calc(100vh-340px)] divide-y divide-edge-subtle overflow-auto">
+              <div className="max-h-[calc(100vh-340px)] space-y-3 p-4">
                 {feed.headlines.map((h, index) => (
                   <div
                     key={`${h.published_at}-${index}`}
-                    className="flex items-start justify-between gap-4 px-4 py-3"
+                    className="flex items-start justify-between gap-4"
                   >
-                    <span className="min-w-0">
-                      <span className="block text-sm leading-snug text-ink">{h.headline}</span>
-                      <span className="mt-1 block font-mono text-[11px] text-ink-dim">
-                        {h.source || 'Unknown source'} · {h.published_at || 'no date'}
+                    <span className="max-w-prose min-w-0">
+                      <span className="block text-sm leading-snug text-ink">
+                        {h.headline}
+                      </span>
+                      <span className="mt-0.5 block font-mono text-xs text-ink-dim">
+                        {h.source || 'Unknown source'} ·{' '}
+                        {h.published_at || 'no date'}
                       </span>
                     </span>
                     <span
@@ -172,14 +196,16 @@ export default function FinancialNews() {
 
       {loading && (
         <div className="panel space-y-2 p-4">
-          <div className="h-4 w-1/3 animate-pulse rounded bg-base-hover" />
-          <div className="h-9 animate-pulse rounded bg-base-hover" />
-          <div className="h-9 animate-pulse rounded bg-base-hover" />
+          <div className="h-4 w-1/3 bg-white/5" />
+          <div className="h-9 bg-white/5" />
+          <div className="h-9 bg-white/5" />
         </div>
       )}
 
       {error && (
-        <div className="panel px-4 py-3 text-sm text-neg">Error loading news: {error}</div>
+        <div className="panel px-4 py-3 text-sm text-neg">
+          Error loading news: {error}
+        </div>
       )}
     </div>
   )

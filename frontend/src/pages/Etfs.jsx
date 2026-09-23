@@ -46,6 +46,10 @@ function cellClass(column) {
   return columns.join(' ')
 }
 
+function fetchScreener() {
+  return fetchJSON('/screener')
+}
+
 function SortIcon({ column, sortKey, sortDir }) {
   if (sortKey !== column.key) {
     return <ArrowUpDown size={11} strokeWidth={1.8} className="text-ink-dim" />
@@ -66,11 +70,20 @@ export default function Etfs() {
   const navigate = useNavigate()
 
   useEffect(() => {
-    fetchJSON('/screener')
+    fetchScreener()
       .then(setRows)
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false))
   }, [])
+
+  function refresh() {
+    setLoading(true)
+    setError(null)
+    fetchScreener()
+      .then(setRows)
+      .catch((e) => setError(e.message))
+      .finally(() => setLoading(false))
+  }
 
   const sortedRows = useMemo(() => {
     const direction = sortDir === 'asc' ? 1 : -1
@@ -103,7 +116,7 @@ export default function Etfs() {
           <h1 className="text-2xl font-semibold tracking-tight text-ink">
             ETF screener
           </h1>
-          <p className="mt-1 text-sm text-ink-soft">
+          <p className="mt-1 max-w-prose text-sm text-ink-soft">
             Screening stats computed from stored price history. Click a row to
             open it in the simulator.
           </p>
@@ -118,9 +131,9 @@ export default function Etfs() {
 
       {loading && (
         <div className="panel space-y-2 p-4">
-          <div className="h-4 w-1/3 animate-pulse rounded bg-base-hover" />
-          <div className="h-9 animate-pulse rounded bg-base-hover" />
-          <div className="h-9 animate-pulse rounded bg-base-hover" />
+          <div className="h-4 w-1/3 bg-white/5" />
+          <div className="h-9 bg-white/5" />
+          <div className="h-9 bg-white/5" />
         </div>
       )}
 
@@ -130,18 +143,38 @@ export default function Etfs() {
         </div>
       )}
 
-      {!loading && !error && (
+      {!loading && !error && sortedRows.length === 0 && (
+        <div className="panel px-4 py-8">
+          <p className="text-sm text-ink-soft">
+            No ETF pricing data yet — screener metrics are computed from
+            stored daily closes.
+          </p>
+          <p className="mt-2 text-xs text-ink-faint">
+            Ingest historical prices, then refresh:
+          </p>
+          <div className="mt-3 flex items-center gap-3">
+            <button type="button" className="btn" onClick={refresh}>
+              Refresh
+            </button>
+            <span className="font-mono text-xs text-ink-soft">
+              python -m app.scripts.ingest
+            </span>
+          </div>
+        </div>
+      )}
+
+      {!loading && !error && sortedRows.length > 0 && (
         <div className="panel overflow-hidden">
           <div className="max-h-[calc(100vh-220px)] overflow-auto">
             <table className="w-full border-collapse">
-              <thead className="sticky top-0 z-10 bg-base-panel text-left">
+              <thead className="sticky top-0 z-10 bg-base text-left">
                 <tr className="border-b border-edge">
                   {COLUMNS.map((column) => (
                     <th key={column.key} className="px-4 py-2">
                       <button
                         type="button"
                         onClick={() => toggleSort(column.key)}
-                        className={`flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.06em] text-ink-faint transition-colors hover:text-ink-soft ${
+                        className={`flex items-center gap-1.5 text-xs font-semibold uppercase tracking-widest text-ink-faint transition-colors hover:text-ink-soft ${
                           column.align === 'right' ? 'ml-auto' : ''
                         }`}
                       >

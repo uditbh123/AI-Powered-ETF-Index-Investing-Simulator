@@ -113,26 +113,26 @@ function WatchRow({ ticker, prices, active, onSelect }) {
       className={[
         'flex w-full items-center gap-2 border-l-2 px-3 py-2 text-left transition-colors',
         active
-          ? 'border-accent bg-white/[0.04]'
-          : 'border-transparent hover:border-white/20 hover:bg-white/[0.03]',
+          ? 'border-accent bg-white/5'
+          : 'border-transparent hover:border-white/20 hover:bg-white/5',
       ].join(' ')}
     >
       <span className="min-w-0 flex-1">
         <span className="block font-mono text-sm font-semibold text-ink">
           {ticker.symbol}
         </span>
-        <span className="block truncate text-[11px] text-ink-faint">
+        <span className="block text-xs text-ink-faint">
           {ticker.name}
         </span>
       </span>
       <Sparkline values={prices?.map((p) => p.close)} positive={positive} />
       <span className="w-[76px] shrink-0 text-right">
-        <span className="block font-mono text-[12px] text-ink tabular-nums">
+        <span className="block font-mono text-xs text-ink tabular-nums">
           {stats ? formatPrice(stats.latest) : '—'}
         </span>
         <span
           className={[
-            'block font-mono text-[11px] tabular-nums',
+            'block font-mono text-xs tabular-nums',
             positive ? 'tick-up' : 'tick-down',
           ].join(' ')}
         >
@@ -146,8 +146,8 @@ function WatchRow({ ticker, prices, active, onSelect }) {
 function PriceTooltip({ active, payload, label, symbol }) {
   if (!active || !payload?.length) return null
   return (
-    <div className="rounded-md border border-white/10 bg-black px-3 py-2">
-      <div className="text-[11px] text-ink-faint">
+    <div className="border border-edge bg-base px-3 py-2">
+      <div className="text-xs text-ink-faint">
         {symbol} · {label}
       </div>
       <div className="mt-0.5 font-mono text-sm text-accent tabular-nums">
@@ -261,17 +261,17 @@ export default function Home() {
     <div className="flex h-full min-h-0 flex-col overflow-y-auto lg:flex-row lg:overflow-hidden">
       {/* ---- Primary chart pane ---- */}
       <section className="flex min-h-[460px] min-w-0 flex-1 flex-col border-b border-white/10 lg:min-h-0 lg:border-b-0 lg:border-r">
-        <div className="flex flex-wrap items-center gap-x-5 gap-y-2 border-b border-white/5 px-4 py-2.5">
+        <div className="flex flex-wrap items-center gap-x-5 gap-y-2 px-4 pb-3 pt-2.5">
           <div className="min-w-0">
             <div className="flex items-center gap-2">
-              <span className="font-mono text-lg font-semibold leading-none text-ink">
+              <span className="font-mono text-lg font-semibold text-ink">
                 {activeSymbol || '—'}
               </span>
               {activeTicker?.sector && (
                 <span className="chip">{activeTicker.sector}</span>
               )}
             </div>
-            <div className="mt-1 truncate text-[11px] text-ink-faint">
+            <div className="mt-1 text-xs text-ink-faint">
               {activeTicker?.name || ''}
             </div>
           </div>
@@ -283,7 +283,7 @@ export default function Home() {
               </span>
               <span
                 className={[
-                  'font-mono text-[12px] tabular-nums',
+                  'font-mono text-xs tabular-nums',
                   activeStats.changePct >= 0 ? 'tick-up' : 'tick-down',
                 ].join(' ')}
               >
@@ -296,7 +296,7 @@ export default function Home() {
 
           <div className="ml-auto flex items-center gap-2">
             <select
-              className="select h-7 w-[160px] py-0 text-[12px]"
+              className="select h-7 w-[160px] py-0 text-xs"
               value={activeSymbol || ''}
               onChange={(event) => setActiveSymbol(event.target.value)}
               aria-label="Select instrument"
@@ -307,14 +307,14 @@ export default function Home() {
                 </option>
               ))}
             </select>
-            <div className="flex items-center rounded-md border border-white/10 p-0.5">
+            <div className="flex items-center border border-edge-subtle p-0.5">
               {Object.keys(RANGE_POINTS).map((key) => (
                 <button
                   key={key}
                   type="button"
                   onClick={() => setRange(key)}
                   className={[
-                    'rounded px-1.5 py-0.5 font-mono text-[10px] transition-colors',
+                    'px-1.5 py-0.5 font-mono text-xs transition-colors',
                     range === key
                       ? 'bg-white text-black'
                       : 'text-ink-faint hover:text-white',
@@ -342,20 +342,6 @@ export default function Home() {
                 data={chartData}
                 margin={{ top: 8, right: 12, bottom: 4, left: 0 }}
               >
-                <defs>
-                  <linearGradient id="priceFill" x1="0" y1="0" x2="0" y2="1">
-                    <stop
-                      offset="0%"
-                      stopColor="var(--chart-line)"
-                      stopOpacity={0.28}
-                    />
-                    <stop
-                      offset="100%"
-                      stopColor="var(--chart-line)"
-                      stopOpacity={0}
-                    />
-                  </linearGradient>
-                </defs>
                 <CartesianGrid
                   stroke="var(--chart-grid)"
                   strokeDasharray="3 3"
@@ -389,13 +375,10 @@ export default function Home() {
                   dataKey="close"
                   stroke="var(--chart-line)"
                   strokeWidth={1.75}
-                  fill="url(#priceFill)"
+                  fill="var(--chart-line)"
+                  fillOpacity={0.08}
                   dot={false}
-                  activeDot={{
-                    r: 3,
-                    fill: 'var(--chart-line)',
-                    stroke: 'var(--chart-glow)',
-                  }}
+                  activeDot={{ r: 3, fill: 'var(--chart-line)' }}
                 />
               </AreaChart>
             </ResponsiveContainer>
@@ -409,16 +392,16 @@ export default function Home() {
 
       {/* ---- Watchlist pane ---- */}
       <aside className="flex w-full shrink-0 flex-col lg:w-[320px]">
-        <div className="flex items-center justify-between gap-2 border-b border-white/5 px-4 py-2.5">
-          <span className="text-[11px] font-semibold uppercase tracking-[0.08em] text-ink-soft">
+        <div className="flex items-center justify-between gap-2 px-4 pb-2 pt-3">
+          <span className="text-xs font-semibold uppercase tracking-widest text-ink-soft">
             Top ETFs
           </span>
-          <span className="font-mono text-[10px] text-ink-faint">
+          <span className="font-mono text-xs text-ink-faint">
             {filtered.length.toString().padStart(2, '0')}
           </span>
         </div>
 
-        <div className="border-b border-white/5 px-3 py-2">
+        <div className="px-3 pb-3">
           <div className="relative">
             <Search
               size={13}
@@ -427,7 +410,7 @@ export default function Home() {
             />
             <input
               type="text"
-              className="input h-7 py-0 pl-7 text-[12px]"
+              className="input h-7 py-0 pl-7 text-xs"
               placeholder="Search symbol or name"
               value={query}
               onChange={(event) => setQuery(event.target.value)}
@@ -440,18 +423,29 @@ export default function Home() {
           {loadingList ? (
             <div className="space-y-1 p-3">
               {[0, 1, 2, 3, 4, 5].map((i) => (
-                <div
-                  key={i}
-                  className="h-11 animate-pulse rounded bg-white/[0.03]"
-                />
+                <div key={i} className="h-11 bg-white/5" />
               ))}
             </div>
           ) : listError ? (
             <p className="px-4 py-3 text-xs text-neg">{listError}</p>
           ) : filtered.length === 0 ? (
-            <p className="px-4 py-3 text-xs text-ink-faint">
-              No instruments match “{query}”.
-            </p>
+            query.trim() ? (
+              <p className="px-4 py-3 text-xs text-ink-faint">
+                No instruments match “{query}”.
+              </p>
+            ) : (
+              <div className="px-4 py-5">
+                <p className="text-xs text-ink-soft">
+                  No price data yet, so the watchlist is empty.
+                </p>
+                <p className="mt-2 text-xs text-ink-faint">
+                  Ingest historical closes to populate it:
+                </p>
+                <p className="mt-1 font-mono text-xs text-ink-soft">
+                  python -m app.scripts.ingest
+                </p>
+              </div>
+            )
           ) : (
             filtered.map((ticker) => (
               <WatchRow

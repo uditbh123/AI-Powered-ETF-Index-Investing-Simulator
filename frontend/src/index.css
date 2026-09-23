@@ -2,14 +2,14 @@
 @tailwind components;
 @tailwind utilities;
 
-/* Shared visual tokens (recharts + any runtime styling) */
+/* Shared visual tokens (recharts + any runtime styling). Values source only
+ from tailwind.config.js via theme(); no hex literals outside the config. */
 :root {
-  --chart-grid: rgba(255, 255, 255, 0.08);
-  --chart-axis: #737373;
-  --chart-line: #4cc2ff;
-  --chart-glow: rgba(76, 194, 255, 0.25);
-  --up: #16c98e;
-  --down: #ff5c6c;
+  --chart-grid: theme('colors.edge.subtle');
+  --chart-axis: theme('colors.ink.dim');
+  --chart-line: theme('colors.accent.DEFAULT');
+  --up: theme('colors.pos.DEFAULT');
+  --down: theme('colors.neg.DEFAULT');
   color-scheme: dark;
 }
 
@@ -19,7 +19,18 @@ body {
 }
 
 body {
-  @apply bg-black font-sans text-white antialiased;
+  @apply bg-base font-sans text-white antialiased;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Tabular numerals everywhere: values align in columns even without mono. */
+@layer base {
+  input,
+  select,
+  button,
+  table {
+    font-variant-numeric: tabular-nums;
+  }
 }
 
 ::selection {
@@ -29,7 +40,7 @@ body {
 /* Slim, dark scrollbars */
 * {
   scrollbar-width: thin;
-  scrollbar-color: #333 transparent;
+  scrollbar-color: theme('colors.ink.dim') transparent;
 }
 
 *::-webkit-scrollbar {
@@ -38,7 +49,7 @@ body {
 }
 
 *::-webkit-scrollbar-thumb {
-  @apply rounded-full bg-white/20;
+  @apply bg-white/20;
 }
 
 *::-webkit-scrollbar-track {
@@ -46,20 +57,20 @@ body {
 }
 
 @layer components {
-  /* Terminal surface: true black, structure via ultra-faint white borders */
+  /* Terminal surface: true black, structure via spacing and single borders */
   .panel {
-    @apply rounded-lg border border-white/10 bg-black;
+    @apply border border-edge bg-base;
   }
 
   .panel-title {
-    @apply flex items-center justify-between gap-2 border-b border-white/5 px-4 py-2.5
-      text-[11px] font-semibold uppercase tracking-[0.08em] text-ink-soft;
+    @apply flex items-center justify-between gap-2 border-b border-edge-subtle px-4 py-2.5
+      text-xs font-semibold uppercase tracking-widest text-ink-soft;
   }
 
   /* Dense data fields */
   .field-label {
-    @apply mb-1 flex items-center justify-between text-[11px] font-medium uppercase
-      tracking-[0.06em] text-ink-faint;
+    @apply mb-1 flex items-center justify-between text-xs font-medium uppercase
+      tracking-widest text-ink-faint;
   }
 
   .field-value {
@@ -69,7 +80,7 @@ body {
   .input,
   .select,
   .select-native {
-    @apply w-full rounded-md border border-white/10 bg-white/[0.03] px-2.5 py-1.5
+    @apply w-full border border-edge bg-white/5 px-2.5 py-1.5
       text-sm text-white outline-none transition-colors
       placeholder:text-ink-dim focus:border-white/40 focus:ring-1 focus:ring-white/20;
   }
@@ -87,15 +98,15 @@ body {
 
   /* Secondary buttons */
   .btn {
-    @apply inline-flex items-center justify-center gap-1.5 rounded-md border
-      border-white/15 bg-black px-3 py-1.5 text-sm font-medium text-ink-soft
+    @apply inline-flex items-center justify-center gap-1.5 border
+      border-edge bg-base px-3 py-1.5 text-sm font-medium text-ink-soft
       transition-colors hover:border-white/40 hover:bg-white/10 hover:text-white
       disabled:pointer-events-none disabled:opacity-40;
   }
 
   /* Primary action: stark white 1px border; inverts on hover */
   .btn-primary {
-    @apply rounded-md border border-white bg-black px-3 py-1.5 text-sm font-semibold
+    @apply border border-white bg-base px-3 py-1.5 text-sm font-semibold
       text-white transition-colors hover:bg-white hover:text-black
       disabled:pointer-events-none disabled:opacity-40;
   }
@@ -107,23 +118,23 @@ body {
 
   /* Range sliders */
   .slider {
-    @apply h-1.5 w-full cursor-pointer appearance-none rounded-full bg-white/10
+    @apply h-1.5 w-full cursor-pointer appearance-none bg-white/10
       accent-white;
   }
 
   .slider::-webkit-slider-thumb {
     -webkit-appearance: none;
-    @apply h-3.5 w-3.5 rounded-full border border-white bg-black transition-transform hover:scale-110;
+    @apply h-3.5 w-3.5 border border-white bg-base;
   }
 
   .slider::-moz-range-thumb {
-    @apply h-3.5 w-3.5 rounded-full border border-white bg-black;
+    @apply h-3.5 w-3.5 border border-white bg-base;
   }
 
   /* Chips + misc */
   .chip {
-    @apply inline-flex items-center gap-1 rounded border border-white/10
-      bg-white/[0.03] px-1.5 py-0.5 font-mono text-[11px] text-ink-soft;
+    @apply inline-flex items-center gap-1 border border-edge-subtle
+      bg-white/5 px-1.5 py-0.5 font-mono text-xs text-ink-soft;
   }
 
   .tick-up {
@@ -132,29 +143,5 @@ body {
 
   .tick-down {
     @apply text-neg;
-  }
-}
-
-/* Disclaimer marquee: ultra-thin, muted, true black */
-@keyframes disclaimer-scroll {
-  from {
-    transform: translateX(0);
-  }
-  to {
-    transform: translateX(-50%);
-  }
-}
-
-.disclaimer-track {
-  animation: disclaimer-scroll 60s linear infinite;
-}
-
-.disclaimer:hover .disclaimer-track {
-  animation-play-state: paused;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .disclaimer-track {
-    animation: none;
   }
 }

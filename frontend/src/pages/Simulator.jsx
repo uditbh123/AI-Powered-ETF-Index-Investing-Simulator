@@ -76,11 +76,11 @@ function FanTooltip({ active, payload }) {
     { label: '10th', value: point.low, tone: 'text-neg' },
   ]
   return (
-    <div className="rounded-md border border-white/10 bg-black px-3 py-2">
-      <div className="text-[11px] text-ink-faint">
+    <div className="border border-edge bg-base px-3 py-2">
+      <div className="text-xs text-ink-faint">
         Year {Math.floor(point.month / 12)} · month {point.month % 12}
       </div>
-      <div className="mt-1 space-y-0.5 font-mono text-[12px] tabular-nums">
+      <div className="mt-1 space-y-0.5 font-mono text-xs tabular-nums">
         {rows.map(({ label, value, tone }) => (
           <div key={label} className="flex items-center justify-between gap-5">
             <span className="text-ink-faint">{label}</span>
@@ -102,9 +102,9 @@ function CrisisFanTooltip({ active, payload }) {
     { label: 'actual', value: point.actual, tone: 'text-pos' },
   ]
   return (
-    <div className="rounded-md border border-white/10 bg-black px-3 py-2">
-      <div className="text-[11px] text-ink-faint">Crisis month {point.month}</div>
-      <div className="mt-1 space-y-0.5 font-mono text-[12px] tabular-nums">
+    <div className="border border-edge bg-base px-3 py-2">
+      <div className="text-xs text-ink-faint">Crisis month {point.month}</div>
+      <div className="mt-1 space-y-0.5 font-mono text-xs tabular-nums">
         {rows.map(({ label, value, tone }) => (
           <div key={label} className="flex items-center justify-between gap-5">
             <span className="text-ink-faint">{label}</span>
@@ -123,10 +123,10 @@ function ToggleSwitch({ checked, onChange, title, subtitle }) {
       role="switch"
       aria-checked={checked}
       onClick={() => onChange(!checked)}
-      className="flex w-full items-center justify-between gap-3 rounded-md border border-white/10 bg-white/[0.02] px-2.5 py-2 text-left transition-colors hover:border-white/30"
+      className="flex w-full items-center justify-between gap-3 border border-edge bg-white/5 px-2.5 py-2 text-left transition-colors hover:border-white/30"
     >
       <span className="min-w-0">
-        <span className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.06em] text-ink-soft">
+        <span className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-widest text-ink-soft">
           <Sparkles
             size={11}
             strokeWidth={1.8}
@@ -134,19 +134,19 @@ function ToggleSwitch({ checked, onChange, title, subtitle }) {
           />
           {title}
         </span>
-        <span className="mt-0.5 block text-[11px] leading-snug text-ink-dim">
+        <span className="mt-0.5 block text-xs leading-snug text-ink-dim">
           {subtitle}
         </span>
       </span>
       <span
         className={[
-          'relative h-4 w-8 shrink-0 rounded-full border transition-colors',
+          'relative h-4 w-8 shrink-0 border',
           checked ? 'border-accent bg-accent/25' : 'border-white/20 bg-white/5',
         ].join(' ')}
       >
         <span
           className={[
-            'absolute top-1/2 h-2.5 w-2.5 -translate-y-1/2 rounded-full transition-all',
+            'absolute top-1/2 h-2.5 w-2.5 -translate-y-1/2',
             checked ? 'left-[15px] bg-accent' : 'left-0.5 bg-ink-faint',
           ].join(' ')}
         />
@@ -293,7 +293,7 @@ export default function Simulator() {
     <div className="space-y-4">
       <div>
         <h1 className="text-2xl font-semibold tracking-tight text-ink">Simulator</h1>
-        <p className="mt-1 text-sm text-ink-soft">
+        <p className="mt-1 max-w-prose text-sm text-ink-soft">
           Configure a hypothetical portfolio and run a Monte Carlo simulation to
           chart its median growth trajectory.
         </p>
@@ -305,8 +305,8 @@ export default function Simulator() {
           <div className="panel-title">
             <span>Controls</span>
             {phase === 'running' && (
-              <span className="flex items-center gap-1 font-mono text-[10px] normal-case text-accent">
-                <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-accent" />
+              <span className="flex items-center gap-1 font-mono text-xs normal-case text-accent">
+                <span className="h-1.5 w-1.5 bg-accent" />
                 running
               </span>
             )}
@@ -357,7 +357,7 @@ export default function Simulator() {
             />
 
             <div>
-              <span className="mb-1.5 block text-[11px] font-medium uppercase tracking-[0.06em] text-ink-faint">
+              <span className="mb-1.5 block text-xs font-medium uppercase tracking-widest text-ink-faint">
                 Holdings
               </span>
               <div className="space-y-2">
@@ -376,7 +376,7 @@ export default function Simulator() {
                           </option>
                         ))}
                     </select>
-                    <div className="flex h-8 w-16 items-center gap-0.5 rounded-md border border-edge bg-base-elevated px-1.5 focus-within:border-accent-dim">
+                    <div className="flex h-8 w-16 items-center gap-0.5 border border-edge bg-base-elevated px-1.5 focus-within:border-accent-dim">
                       <input
                         type="number"
                         min="0"
@@ -386,7 +386,7 @@ export default function Simulator() {
                         value={holding.weight}
                         onChange={(e) => updateHolding(index, 'weight', e.target.value)}
                       />
-                      <span className="text-[11px] text-ink-faint">%</span>
+                      <span className="text-xs text-ink-faint">%</span>
                     </div>
                     <button
                       type="button"
@@ -429,14 +429,16 @@ export default function Simulator() {
         {/* ---- Chart area ---- */}
         <section className="space-y-4">
           {!result ? (
-            <div className="panel flex flex-col items-center justify-center gap-3 bg-base-panel px-6 py-20 text-center">
-              <span className="flex h-12 w-12 items-center justify-center rounded-full border border-edge bg-base-elevated text-ink-dim">
+            <div className="panel flex flex-col gap-3 px-6 py-14">
+              <span className="flex h-12 w-12 items-center justify-center border border-edge bg-base-elevated text-ink-dim">
                 <Calculator size={20} strokeWidth={1.6} />
               </span>
-              <p className="text-sm text-ink-soft">
-                Adjust the controls and press{' '}
-                <span className="font-medium text-accent">Run simulation</span> to
-                chart the 10th–90th percentile growth fan.
+              <p className="max-w-prose text-sm text-ink-soft">
+                No portfolio yet. Set a balance, monthly contribution, and
+                holdings above, then press{' '}
+                <span className="font-medium text-accent">Run simulation</span> —
+                it creates the portfolio and charts the 10th–90th percentile
+                growth fan.
               </p>
             </div>
           ) : (
@@ -445,12 +447,12 @@ export default function Simulator() {
                 {statCards.map(({ icon: Icon, label, value, tone }) => (
                   <div key={label} className="panel flex items-center gap-3 px-4 py-3">
                     <span
-                      className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-edge bg-base-elevated ${tone}`}
+                      className={`flex h-8 w-8 shrink-0 items-center justify-center border border-edge bg-base-elevated ${tone}`}
                     >
                       <Icon size={15} strokeWidth={1.8} />
                     </span>
                     <span className="min-w-0">
-                      <span className="block text-[11px] font-medium uppercase tracking-[0.06em] text-ink-faint">
+                      <span className="block text-xs font-medium uppercase tracking-widest text-ink-faint">
                         {label}
                       </span>
                       <span className="block truncate font-mono text-xl text-ink tabular-nums">
@@ -461,10 +463,10 @@ export default function Simulator() {
                 ))}
               </div>
 
-              <div className="panel bg-base-panel">
+              <div className="panel bg-base">
                 <div className="panel-title">
                   <span>Growth fan chart · 10th–90th percentile</span>
-                  <span className="flex items-center gap-2 font-mono text-[10px] normal-case text-ink-faint">
+                  <span className="flex items-center gap-2 font-mono text-xs normal-case text-ink-faint">
                     {result.sentiment?.applied && (
                       <span className="chip">
                         <Sparkles size={10} strokeWidth={2} className="text-accent" />
@@ -513,7 +515,7 @@ export default function Simulator() {
                         stroke="var(--chart-line)"
                         strokeWidth={2}
                         dot={false}
-                        activeDot={{ r: 3, fill: 'var(--chart-line)', stroke: 'var(--chart-glow)' }}
+                        activeDot={{ r: 3, fill: 'var(--chart-line)' }}
                       />
                     </ComposedChart>
                   </ResponsiveContainer>
@@ -521,7 +523,7 @@ export default function Simulator() {
               </div>
 
               {result.cached && (
-                <p className="text-center text-[11px] text-ink-dim">
+                <p className="text-xs text-ink-dim">
                   Loaded from cached simulation results.
                 </p>
               )}
@@ -530,8 +532,8 @@ export default function Simulator() {
                 <div className="panel-title">
                   <span>Replay a crisis</span>
                   {crisisLoading && (
-                    <span className="flex items-center gap-1 font-mono text-[10px] normal-case text-accent">
-                      <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-accent" />
+                    <span className="flex items-center gap-1 font-mono text-xs normal-case text-accent">
+                      <span className="h-1.5 w-1.5 bg-accent" />
                       running
                     </span>
                   )}
@@ -567,22 +569,22 @@ export default function Simulator() {
                   {crisisError && <p className="text-xs text-neg">Error: {crisisError}</p>}
 
                   {crisisData && (
-                    <div className="rounded-md border border-white/10 p-3">
+                    <div className="border border-edge p-3">
                       <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-                        <span className="text-[11px] font-semibold uppercase tracking-[0.06em] text-ink-soft">
-                          {crisisLabel(crisisData.crisis)} · {crisisData.window.start} →{' '}
-                          {crisisData.window.end}
+                        <span className="text-xs font-semibold uppercase tracking-widest text-ink-soft">
+                          {crisisLabel(crisisData.crisis)} · {crisisData.window.start} →
+                          {' '}{crisisData.window.end}
                         </span>
-                        <span className="flex items-center gap-3 font-mono text-[10px] text-ink-faint">
+                        <span className="flex items-center gap-3 font-mono text-xs text-ink-faint">
                           <span className="flex items-center gap-1.5">
-                            <span className="h-0.5 w-4 bg-[var(--chart-line)]" /> simulated
+                            <span className="h-0.5 w-4 bg-accent" /> simulated
                             median
                           </span>
                           <span className="flex items-center gap-1.5">
-                            <span className="h-0.5 w-4 bg-[var(--up)]" /> real trajectory
+                            <span className="h-0.5 w-4 bg-pos" /> real trajectory
                           </span>
                           <span className="flex items-center gap-1.5">
-                            <span className="h-2 w-4 rounded-sm bg-[var(--chart-line)] opacity-20" />{' '}
+                            <span className="h-2 w-4 bg-accent opacity-20" />{' '}
                             10–90th
                           </span>
                         </span>
@@ -643,7 +645,7 @@ export default function Simulator() {
                               strokeWidth={2}
                               strokeDasharray="4 2"
                               dot={false}
-                              activeDot={{ r: 3, fill: 'var(--up)', stroke: 'var(--chart-glow)' }}
+                              activeDot={{ r: 3, fill: 'var(--up)' }}
                             />
                           </ComposedChart>
                         </ResponsiveContainer>

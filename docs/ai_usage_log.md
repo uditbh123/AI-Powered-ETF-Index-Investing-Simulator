@@ -177,3 +177,35 @@ evidence from the test suite is included.
   three crises, coverage-error reasons, annuity-due closed form, plain-growth
   compounding, plus API wiring/422s/400s and seed determinism).
   `135 -> 150 passed`. Commit `a869e9c`.
+
+## Stage F — Frontend design pass (quant-terminal aesthetic; presentational only)
+- **What changed:** styling-only pass; no API calls, data wiring, prop
+  contracts, routing, or backend files were touched. Design decisions:
+  accent `#4cc2ff` for all interactive elements (accent), semantic up/down
+  colors `pos #16c98e` / `neg #ff5c6c` (exempt from the one-accent rule), a
+  single corner radius of `0px` (terminal square look), a fixed type scale of
+  12/14/16/20/24/32px (body 1.5, headings 1.2), and a font pair of Inter
+  (prose) + JetBrains Mono (tickers, numbers, tables) with tabular numerals.
+  All hex lives once in `tailwind.config.js`; chart/runtime colors in
+  `index.css` are derived from it via `theme()`.
+  Removed: gradient area-chart fills, all `border-white/5` micro-dividers
+  (replaced with spacing), decorative hover/scale/glow effects, `animate-pulse`
+  skeletons, the disclaimer marquee, and the `AmbientDataGrid`
+  requestAnimationFrame loop (now a static one-shot grid with event-driven
+  resize redraw only). DisclaimerBanner is now a static, always-visible,
+  high-contrast strip. Tables/prose are left-aligned; prose blocks capped at
+  `max-w-prose` (65ch). Every page got a designed empty/loading state. Fonts
+  loaded via Google Fonts `<link>` in `index.html`.
+- **Files changed:** `tailwind.config.js`, `index.css`, `index.html`,
+  `src/App.jsx`, `src/components/Sidebar.jsx`,
+  `src/components/DisclaimerBanner.jsx`, `src/components/AmbientDataGrid.jsx`,
+  `src/pages/Home.jsx`, `src/pages/Etfs.jsx`, `src/pages/Simulator.jsx`,
+  `src/pages/FinancialNews.jsx`, `src/pages/InvestingStrategies.jsx`,
+  `README.md` (Screenshots section), `docs/screenshots/before/` and
+  `docs/screenshots/after/` (5 pages × desktop 1440×900 + mobile 390×844,
+  captured with Edge headless).
+- **Evidence:** `npm run lint` (oxlint) clean; `npm run build` clean; DOM
+  verification after the pass shows the same real data rendering on all pages
+  (SPY watchlist rows, screener table + "tracked" chip, headlines + aggregate
+  sentiment, simulator controls). Frontend has no test suite; the backend
+  suite is unaffected (150 passed).

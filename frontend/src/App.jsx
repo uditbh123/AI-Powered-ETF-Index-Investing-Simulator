@@ -18,7 +18,7 @@ function App() {
       <Sidebar />
 
       <div className="flex min-w-0 flex-1 flex-col">
-        <header className="shrink-0 bg-black">
+        <header className="shrink-0 bg-base">
           <DisclaimerBanner />
         </header>
 

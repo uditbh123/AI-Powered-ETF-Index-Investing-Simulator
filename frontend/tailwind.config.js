@@ -25,7 +25,6 @@ export default {
         accent: {
           DEFAULT: '#4cc2ff',
           dim: '#2d7fb8',
-          glow: '#4cc2ff',
         },
         pos: {
           DEFAULT: '#16c98e',
@@ -60,15 +59,14 @@ export default {
           'monospace',
         ],
       },
+      // Fixed type scale (px). Body line-height 1.5, headings 1.2.
       fontSize: {
-        xs: ['11px', '1.25rem'],
-        sm: ['12px', '1.375rem'],
-        base: ['13px', '1.5rem'],
-        lg: ['14px', '1.5rem'],
-        xl: ['16px', '1.5rem'],
-        '2xl': ['20px', '1.4rem'],
-        '3xl': ['24px', '1.3rem'],
-        '4xl': ['32px', '1.2rem'],
+        xs: ['12px', '1.5'],
+        sm: ['14px', '1.5'],
+        base: ['16px', '1.5'],
+        lg: ['20px', '1.2'],
+        xl: ['24px', '1.2'],
+        '2xl': ['32px', '1.2'],
       },
       boxShadow: {
         panel: 'none',

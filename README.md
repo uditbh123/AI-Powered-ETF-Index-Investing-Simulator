@@ -150,6 +150,17 @@ npm run lint    # oxlint
 npm run build   # production build to dist/
 ```
 
+## Screenshots
+
+The quant-terminal UI. Before/after snapshots of every page at desktop and
+mobile widths live in `docs/screenshots/before/` and `docs/screenshots/after/`.
+
+![ETF Terminal — Home dashboard with price chart and watchlist](docs/screenshots/after/desktop_Home.png)
+
+![ETF screener — sortable screening stats from stored price history](docs/screenshots/after/desktop_Etfs.png)
+
+![Monte Carlo simulator — growth fan chart with crisis replay](docs/screenshots/after/desktop_Simulator.png)
+
 ## Environment files
 
 - `backend/.env` — backend settings (`DATABASE_URL`, API keys). Never commit.
