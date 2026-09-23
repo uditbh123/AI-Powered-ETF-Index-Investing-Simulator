@@ -53,6 +53,7 @@ def list_sentiment(
     ticker_id: int | None = None,
     start: str | None = None,
     end: str | None = None,
+    desc: bool = False,
 ) -> list[sqlite3.Row]:
     """Return sentiment rows, optional category/ticker/date filters, by date."""
     query = "SELECT id, ticker_id_or_null, headline, source, published_at, sentiment_score, category FROM news_sentiment WHERE 1 = 1"
@@ -69,7 +70,7 @@ def list_sentiment(
     if end is not None:
         query += " AND published_at <= ?"
         params.append(end)
-    query += " ORDER BY published_at, id"
+    query += " ORDER BY published_at DESC, id DESC" if desc else " ORDER BY published_at, id"
     return conn.execute(query, params).fetchall()
 
 

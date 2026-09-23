@@ -59,6 +59,21 @@ class SimulationRequest(BaseModel):
     use_sentiment: bool = False
 
 
+class HeadlineOut(BaseModel):
+    published_at: str | None
+    source: str | None
+    headline: str
+    sentiment_score: float | None
+
+
+class NewsFeedOut(BaseModel):
+    category: str
+    days: int
+    n_headlines: int
+    aggregate_score: float | None
+    headlines: list[HeadlineOut]
+
+
 __all__ = [
     "HoldingIn",
     "PortfolioCreate",
@@ -67,4 +82,6 @@ __all__ = [
     "TickerPricesOut",
     "PortfolioOut",
     "SimulationRequest",
+    "HeadlineOut",
+    "NewsFeedOut",
 ]
