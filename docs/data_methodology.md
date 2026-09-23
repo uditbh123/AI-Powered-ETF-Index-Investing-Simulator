@@ -157,3 +157,33 @@ remain:
 
 Because the multiplier is part of the simulation cache key, a fresh news batch
 that changes the score produces a new run instead of a stale cached fan chart.
+
+## Crisis replay
+
+_Source: `app/services/crisis.py`, `POST /portfolios/{id}/crisis-replay`
+(`app/routers/crisis.py`)._
+
+A "crisis replay" re-runs a portfolio through one of three fixed historical
+windows, month-end inclusive:
+
+| Name | Window |
+|------|--------|
+| `dot_com_2000` | 2000-03 → 2002-09 (31 months) |
+| `gfc_2008` | 2007-10 → 2009-03 (18 months) |
+| `covid_2020` | 2020-02 → 2020-04 (3 months) |
+
+- **Real trajectory.** The portfolio's own realized monthly returns (from
+  `portfolio_monthly_returns_with_dates`, the same construction as any
+  simulation) are sliced to the window and compounded with contributions at the
+  **start** of the month — the same annuity-due convention as the main engine
+  (`compound_actual` mirrors `simulate_paths` for a single path and is verified
+  against the same closed form as `test_constant_return_matches_closed_form`).
+- **Simulated bands.** Alongside the actual path, the response returns 10th /
+  50th / 90th percentile bands resampled from the **full** history by the
+  bootstrap engine with a fixed seed (`seed=42`, the same default percentile
+  levels), so the chart shows what the window actually did vs. what a fan chart
+  would have predicted.
+- **Coverage requirement.** The whole window must be present in the portfolio's
+  overlapping monthly history, otherwise the endpoint returns 400 naming the
+  crisis and the reason (e.g. "instruments launched after the crisis window
+  ended").

@@ -22,16 +22,14 @@ from ..dao import simulations as simulation_dao
 from . import sentiment_signal
 
 
-def portfolio_monthly_returns(
+def _portfolio_monthly_returns_core(
     conn: sqlite3.Connection,
     holdings: Sequence[sqlite3.Row],
-) -> np.ndarray:
-    """Weighted monthly portfolio returns from stored daily closes.
+) -> tuple[np.ndarray, list[str]]:
+    """Shared core of the monthly-return builders.
 
-    Each holding's closes are resampled to month-end, combined into a single
-    frame, forward-filled, and the ragged early period (before every holding
-    has data) is dropped. The monthly portfolio return is the weighted average
-    of holding returns, weights normalized to sum to 1.
+    Returns ``(portfolio_returns, month_labels)`` where ``month_labels`` holds
+    each return's month-end date as ``"YYYY-MM-DD"``.
     """
     series_by_symbol: dict[str, pd.Series] = {}
     for holding in holdings:
@@ -57,7 +55,37 @@ def portfolio_monthly_returns(
     portfolio_returns = (monthly_returns[symbols].to_numpy() * weights).sum(axis=1)
     if portfolio_returns.size < 2:
         raise ValueError("need at least two monthly returns to simulate")
-    return portfolio_returns
+    month_labels = [ts.strftime("%Y-%m-%d") for ts in monthly_returns.index]
+    return portfolio_returns, month_labels
+
+
+def portfolio_monthly_returns(
+    conn: sqlite3.Connection,
+    holdings: Sequence[sqlite3.Row],
+) -> np.ndarray:
+    """Weighted monthly portfolio returns from stored daily closes.
+
+    Each holding's closes are resampled to month-end, combined into a single
+    frame, forward-filled, and the ragged early period (before every holding
+    has data) is dropped. The monthly portfolio return is the weighted average
+    of holding returns, weights normalized to sum to 1.
+    """
+    returns, _ = _portfolio_monthly_returns_core(conn, holdings)
+    return returns
+
+
+def portfolio_monthly_returns_with_dates(
+    conn: sqlite3.Connection,
+    holdings: Sequence[sqlite3.Row],
+) -> tuple[list[str], np.ndarray]:
+    """Weighted monthly portfolio returns plus their month-end date labels.
+
+    Returns ``(dates, returns)``: ``dates[i]`` is the month-end calendar date
+    the portfolio return ``returns[i]`` belongs to. Used by the crisis replay
+    to slice the series into a historical window.
+    """
+    returns, month_labels = _portfolio_monthly_returns_core(conn, holdings)
+    return month_labels, returns
 
 
 def canonical_params(
@@ -257,6 +285,7 @@ def get_run_response(conn: sqlite3.Connection, run_id: int) -> dict[str, Any] | 
 
 __all__ = [
     "portfolio_monthly_returns",
+    "portfolio_monthly_returns_with_dates",
     "canonical_params",
     "run_portfolio_simulation",
     "get_run_response",

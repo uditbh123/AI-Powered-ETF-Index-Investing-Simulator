@@ -13,6 +13,7 @@ import {
 import {
   Calculator,
   Gauge,
+  History,
   Play,
   Plus,
   Sparkles,
@@ -24,6 +25,16 @@ import {
 import { fetchJSON } from '../api'
 
 const DEFAULT_HOLDINGS = [{ symbol: 'SPY', weight: 100 }]
+
+const CRISIS_OPTIONS = [
+  { value: 'dot_com_2000', label: 'Dot-com bust (2000–2002)' },
+  { value: 'gfc_2008', label: 'Global financial crisis (2007–2009)' },
+  { value: 'covid_2020', label: 'COVID crash (2020)' },
+]
+
+function crisisLabel(value) {
+  return CRISIS_OPTIONS.find((c) => c.value === value)?.label ?? value
+}
 
 function formatCurrency(value) {
   return value.toLocaleString(undefined, {
@@ -69,6 +80,30 @@ function FanTooltip({ active, payload }) {
       <div className="text-[11px] text-ink-faint">
         Year {Math.floor(point.month / 12)} · month {point.month % 12}
       </div>
+      <div className="mt-1 space-y-0.5 font-mono text-[12px] tabular-nums">
+        {rows.map(({ label, value, tone }) => (
+          <div key={label} className="flex items-center justify-between gap-5">
+            <span className="text-ink-faint">{label}</span>
+            <span className={tone}>{formatCurrency(value)}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function CrisisFanTooltip({ active, payload }) {
+  if (!active || !payload?.length) return null
+  const point = payload[0].payload
+  const rows = [
+    { label: '90th', value: point.high, tone: 'text-pos' },
+    { label: 'median', value: point.median, tone: 'text-accent' },
+    { label: '10th', value: point.low, tone: 'text-neg' },
+    { label: 'actual', value: point.actual, tone: 'text-pos' },
+  ]
+  return (
+    <div className="rounded-md border border-white/10 bg-black px-3 py-2">
+      <div className="text-[11px] text-ink-faint">Crisis month {point.month}</div>
       <div className="mt-1 space-y-0.5 font-mono text-[12px] tabular-nums">
         {rows.map(({ label, value, tone }) => (
           <div key={label} className="flex items-center justify-between gap-5">
@@ -136,6 +171,11 @@ export default function Simulator() {
   const [phase, setPhase] = useState('idle') // idle | running | done
   const [result, setResult] = useState(null)
   const [error, setError] = useState(null)
+  const [portfolioId, setPortfolioId] = useState(null)
+  const [crisis, setCrisis] = useState('covid_2020')
+  const [crisisData, setCrisisData] = useState(null)
+  const [crisisLoading, setCrisisLoading] = useState(false)
+  const [crisisError, setCrisisError] = useState(null)
 
   useEffect(() => {
     fetchJSON('/tickers')
@@ -165,6 +205,7 @@ export default function Simulator() {
     event.preventDefault()
     setPhase('running')
     setError(null)
+    setCrisisData(null)
     try {
       const portfolio = await fetchJSON('/portfolios', {
         method: 'POST',
@@ -174,6 +215,7 @@ export default function Simulator() {
           holdings,
         }),
       })
+      setPortfolioId(portfolio.id)
       const sim = await fetchJSON(`/portfolios/${portfolio.id}/simulate`, {
         method: 'POST',
         body: JSON.stringify({
@@ -190,6 +232,26 @@ export default function Simulator() {
     }
   }
 
+  async function replayCrisis() {
+    if (!portfolioId) return
+    setCrisisLoading(true)
+    setCrisisError(null)
+    try {
+      const data = await fetchJSON(`/portfolios/${portfolioId}/crisis-replay`, {
+        method: 'POST',
+        body: JSON.stringify({
+          crisis,
+          initial_balance: Number(initialBalance),
+        }),
+      })
+      setCrisisData(data)
+    } catch (e) {
+      setCrisisError(e.message)
+    } finally {
+      setCrisisLoading(false)
+    }
+  }
+
   const bandPath = (level) =>
     result?.percentiles.find((p) => p.level === level)?.path ?? []
   const lowBand = bandPath(10)
@@ -199,6 +261,24 @@ export default function Simulator() {
     const low = Math.round(lowBand[month] ?? value)
     const high = Math.round(highBand[month] ?? value)
     return { month, low, median: Math.round(value), high, band: [low, high] }
+  })
+
+  const crisisLevel = (level) =>
+    crisisData?.percentiles.find((p) => p.level === level)?.path ?? []
+  const crisisLow = crisisLevel(10)
+  const crisisMed = crisisLevel(50)
+  const crisisHigh = crisisLevel(90)
+  const crisisChart = crisisMed.map((value, month) => {
+    const low = Math.round(crisisLow[month] ?? value)
+    const high = Math.round(crisisHigh[month] ?? value)
+    return {
+      month,
+      low,
+      median: Math.round(value),
+      high,
+      actual: crisisData?.real_path ? Math.round(crisisData.real_path[month]) : null,
+      band: [low, high],
+    }
   })
 
   const statCards = result
@@ -445,6 +525,133 @@ export default function Simulator() {
                   Loaded from cached simulation results.
                 </p>
               )}
+
+              <div className="panel">
+                <div className="panel-title">
+                  <span>Replay a crisis</span>
+                  {crisisLoading && (
+                    <span className="flex items-center gap-1 font-mono text-[10px] normal-case text-accent">
+                      <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-accent" />
+                      running
+                    </span>
+                  )}
+                </div>
+
+                <div className="space-y-3 p-4">
+                  <div className="flex flex-wrap items-end gap-2">
+                    <div className="min-w-[220px] flex-1">
+                      <span className="field-label">Scenario</span>
+                      <select
+                        className="select"
+                        value={crisis}
+                        onChange={(e) => setCrisis(e.target.value)}
+                      >
+                        {CRISIS_OPTIONS.map((c) => (
+                          <option key={c.value} value={c.value}>
+                            {c.label}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <button
+                      type="button"
+                      className="btn btn-primary"
+                      onClick={replayCrisis}
+                      disabled={crisisLoading}
+                    >
+                      <History size={14} strokeWidth={2} />
+                      Replay crisis
+                    </button>
+                  </div>
+
+                  {crisisError && <p className="text-xs text-neg">Error: {crisisError}</p>}
+
+                  {crisisData && (
+                    <div className="rounded-md border border-white/10 p-3">
+                      <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                        <span className="text-[11px] font-semibold uppercase tracking-[0.06em] text-ink-soft">
+                          {crisisLabel(crisisData.crisis)} · {crisisData.window.start} →{' '}
+                          {crisisData.window.end}
+                        </span>
+                        <span className="flex items-center gap-3 font-mono text-[10px] text-ink-faint">
+                          <span className="flex items-center gap-1.5">
+                            <span className="h-0.5 w-4 bg-[var(--chart-line)]" /> simulated
+                            median
+                          </span>
+                          <span className="flex items-center gap-1.5">
+                            <span className="h-0.5 w-4 bg-[var(--up)]" /> real trajectory
+                          </span>
+                          <span className="flex items-center gap-1.5">
+                            <span className="h-2 w-4 rounded-sm bg-[var(--chart-line)] opacity-20" />{' '}
+                            10–90th
+                          </span>
+                        </span>
+                      </div>
+                      <div className="h-[260px]">
+                        <ResponsiveContainer width="100%" height="100%">
+                          <ComposedChart
+                            data={crisisChart}
+                            margin={{ top: 8, right: 16, bottom: 8, left: 8 }}
+                          >
+                            <CartesianGrid
+                              stroke="var(--chart-grid)"
+                              strokeDasharray="3 3"
+                              vertical={false}
+                            />
+                            <XAxis
+                              dataKey="month"
+                              tick={{ fill: 'var(--chart-axis)', fontSize: 11 }}
+                              tickLine={false}
+                              axisLine={{ stroke: 'var(--chart-grid)' }}
+                              tickFormatter={(m) => `${m}m`}
+                            />
+                            <YAxis
+                              tick={{ fill: 'var(--chart-axis)', fontSize: 11 }}
+                              tickFormatter={(v) => `${Math.round(v / 1000)}k`}
+                              tickLine={false}
+                              axisLine={false}
+                              width={48}
+                            />
+                            <Tooltip
+                              content={<CrisisFanTooltip />}
+                              cursor={{
+                                stroke: 'rgba(255,255,255,0.25)',
+                                strokeDasharray: '3 3',
+                              }}
+                            />
+                            <Area
+                              type="monotone"
+                              dataKey="band"
+                              stroke="none"
+                              fill="var(--chart-line)"
+                              fillOpacity={0.1}
+                              isAnimationActive={false}
+                              activeDot={false}
+                            />
+                            <Line
+                              type="monotone"
+                              dataKey="median"
+                              stroke="var(--chart-line)"
+                              strokeWidth={2}
+                              dot={false}
+                              activeDot={{ r: 3 }}
+                            />
+                            <Line
+                              type="monotone"
+                              dataKey="actual"
+                              stroke="var(--up)"
+                              strokeWidth={2}
+                              strokeDasharray="4 2"
+                              dot={false}
+                              activeDot={{ r: 3, fill: 'var(--up)', stroke: 'var(--chart-glow)' }}
+                            />
+                          </ComposedChart>
+                        </ResponsiveContainer>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
             </>
           )}
         </section>

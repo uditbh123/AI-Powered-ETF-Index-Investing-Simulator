@@ -1,6 +1,8 @@
 """Pydantic request/response models for the Phase 3 API."""
 from __future__ import annotations
 
+from typing import Literal
+
 from pydantic import BaseModel, Field, model_validator
 
 
@@ -86,6 +88,11 @@ class ScreenerOut(BaseModel):
     max_drawdown_pct: float
 
 
+class CrisisReplayRequest(BaseModel):
+    crisis: Literal["dot_com_2000", "gfc_2008", "covid_2020"]
+    initial_balance: float = Field(gt=0)
+
+
 __all__ = [
     "HoldingIn",
     "PortfolioCreate",
@@ -97,4 +104,5 @@ __all__ = [
     "HeadlineOut",
     "NewsFeedOut",
     "ScreenerOut",
+    "CrisisReplayRequest",
 ]
