@@ -116,3 +116,64 @@ evidence from the test suite is included.
   - Tests passing explicit multipliers to `simulate_paths` (1.75 / 0.75) were
     NOT changed — that path is not clipped.
 - **Test evidence:** `102 passed`. Commit `ead678c`.
+
+## Stage A — News sentiment feed API + Financial News page
+- **What changed:** new `GET /news?category=sector|geopolitical&ticker_id=&days=30`
+  endpoint (`app/routers/news.py`, response models `HeadlineOut`/`NewsFeedOut`
+  in `app/schemas.py`). Newest-first, headlined capped at 100, `days` clamped to
+  1..90, aggregate score = mean of non-null sentiment in the window (null when
+  none). `ticker_id` filters sector rows only and is ignored for geopolitical
+  news. `list_sentiment` gained an additive `desc` ordering flag
+  (`app/dao/news.py`). Financial News page (`frontend/src/pages/FinancialNews.jsx`)
+  wired to the endpoint with sector/geopolitical tabs, 7/30/90-day windows,
+  aggregate-score card, and empty/error/loading states.
+- **Test evidence:** `tests/test_news_api.py` (10 tests: category, window,
+  clamping, ticker filter incl. geopolitical-ignore, mean-of-non-null,
+  all-null, newest-first, 100 cap, 422s, empty feed). `109 -> 119 passed`.
+  Commit `0878342`.
+
+## Stage B — ETF screener endpoint + sortable screener table
+- **What changed:** new `GET /screener` (`app/routers/screener.py`,
+  `app/services/screener.py`) computing per-ticker screening stats from the
+  stored daily closes with pandas (no network): 1D change, 1Y total return
+  (null <253 rows), annualized volatility (std of daily log returns over the
+  last 252 closes ×√252, null <30 points), and max drawdown over the last year
+  (negative %). Only tickers with price history appear, sorted by symbol. The
+  known adjustment-basis limitation is documented in the endpoint docstring and
+  `docs/data_methodology.md`. ETF catalog page now renders the screener with
+  click-to-sort columns and row click deep-linking to the Simulator with the
+  ticker pre-selected via `?ticker=` (`frontend/src/pages/Etfs.jsx`,
+  `Simulator.jsx`).
+- **Test evidence:** `tests/test_screener.py` (12 tests: 1Y null/known-value,
+  1D, vol null/known/zero, drawdown, API shape + exclusion of history-less
+  tickers). `119 -> 131 passed`. Commit `48f7eb1`.
+
+## Stage C — FK-safe DELETE /portfolios/{id}
+- **What changed:** `delete_portfolio` in `app/dao/portfolios.py` removes child
+  rows in dependency order (simulation_results → simulation_runs →
+  portfolio_holdings → portfolios) with foreign keys enforced per connection;
+  returns 404 when the portfolio does not exist. No frontend change.
+- **Test evidence:** `tests/test_portfolio_delete.py` (4 tests) asserts row
+  counts in all four tables drop to zero after delete, 404 for missing, 404 on
+  double-delete, and that other portfolios are untouched. `131 -> 135 passed`.
+  Commit `75363d8`.
+
+## Stage D — Crisis replay endpoint + Simulator overlay
+- **What changed:** new `POST /portfolios/{id}/crisis-replay`
+  (`app/routers/crisis.py`, `app/services/crisis.py`) replays a portfolio
+  through fixed windows (`dot_com_2000` 2000-03→2002-09, `gfc_2008`
+  2007-10→2009-03, `covid_2020` 2020-02→2020-04). The real trajectory compounds
+  the portfolio's realized monthly returns with start-of-month contributions,
+  mirroring the engine (`compound_actual` matches the same closed form as
+  `test_constant_return_matches_closed_form`); a history that does not fully
+  cover the window returns 400 naming the crisis and reason. 10/50/90 percentile
+  bands are resampled from the full history with `seed=42`.
+  `portfolio_monthly_returns_with_dates` added (additive) in
+  `app/services/simulation.py`. Simulator page gained a minimal "Replay a
+  crisis" control overlaying the real trajectory on the simulated fan chart
+  (`frontend/src/pages/Simulator.jsx`); methodology documented in
+  `docs/data_methodology.md`.
+- **Test evidence:** `tests/test_crisis.py` (15 tests: window slicing for all
+  three crises, coverage-error reasons, annuity-due closed form, plain-growth
+  compounding, plus API wiring/422s/400s and seed determinism).
+  `135 -> 150 passed`. Commit `a869e9c`.
