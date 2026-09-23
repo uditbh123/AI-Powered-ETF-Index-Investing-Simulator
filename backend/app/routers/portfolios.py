@@ -78,3 +78,14 @@ def get_portfolio(
         monthly_contribution=row["monthly_contribution"],
         holdings=[{"symbol": h["symbol"], "weight": h["weight"]} for h in holdings],
     )
+
+
+@router.delete("/portfolios/{portfolio_id}", status_code=204)
+def delete_portfolio(
+    portfolio_id: int,
+    conn: sqlite3.Connection = Depends(get_db),
+) -> None:
+    """Delete a portfolio and all of its runs, results, and holdings."""
+    if not portfolio_dao.delete_portfolio(conn, portfolio_id):
+        raise HTTPException(status_code=404, detail="portfolio not found")
+    conn.commit()

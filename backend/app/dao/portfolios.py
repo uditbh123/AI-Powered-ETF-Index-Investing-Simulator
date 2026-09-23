@@ -69,6 +69,36 @@ def list_holdings(conn: sqlite3.Connection, portfolio_id: int) -> list[sqlite3.R
     ).fetchall()
 
 
+def delete_portfolio(conn: sqlite3.Connection, portfolio_id: int) -> bool:
+    """Delete a portfolio and everything it owns, FK-safe.
+
+    Child rows are removed in dependency order before the portfolio row:
+    simulation_results first (they reference simulation_runs), then the runs,
+    then holdings, then the portfolio itself. Returns False when the portfolio
+    does not exist (no deletes performed). Foreign keys are enforced per
+    connection, so an out-of-order delete would otherwise fail.
+    """
+    exists = conn.execute(
+        "SELECT id FROM portfolios WHERE id = ?", (portfolio_id,)
+    ).fetchone()
+    if exists is None:
+        return False
+
+    conn.execute(
+        "DELETE FROM simulation_results WHERE run_id IN "
+        "(SELECT id FROM simulation_runs WHERE portfolio_id = ?)",
+        (portfolio_id,),
+    )
+    conn.execute(
+        "DELETE FROM simulation_runs WHERE portfolio_id = ?", (portfolio_id,)
+    )
+    conn.execute(
+        "DELETE FROM portfolio_holdings WHERE portfolio_id = ?", (portfolio_id,)
+    )
+    conn.execute("DELETE FROM portfolios WHERE id = ?", (portfolio_id,))
+    return True
+
+
 __all__ = [
     "get_or_create_user",
     "create_portfolio",
@@ -76,4 +106,5 @@ __all__ = [
     "list_portfolios",
     "add_holding",
     "list_holdings",
+    "delete_portfolio",
 ]
