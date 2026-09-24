@@ -15,7 +15,17 @@ export async function fetchJSON(path, options = {}) {
       : body?.detail
     throw new Error(detail || `${response.status} ${response.statusText}`)
   }
-  return response.json()
+  if (response.status === 204) return null
+  const body = await response.json().catch(() => null)
+  // A 200 that is not JSON usually means an SPA-fallback page leaked through a
+  // misconfigured base URL; return it as an error, never null (null can crash
+  // callers who expect an array/object from an OK response).
+  if (body === null) {
+    throw new SyntaxError(
+      `${response.url} returned non-JSON (${response.status} ${response.statusText})`,
+    )
+  }
+  return body
 }
 
 export const API_BASE_URL = API_BASE

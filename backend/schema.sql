@@ -32,7 +32,8 @@ CREATE TABLE IF NOT EXISTS portfolios (
     user_id              INTEGER NOT NULL REFERENCES users(id),
     name                 TEXT    NOT NULL,
     monthly_contribution REAL    NOT NULL DEFAULT 0,
-    start_date           TEXT
+    start_date           TEXT,
+    created_at           TEXT                     -- UTC date (YYYY-MM-DD)
 );
 
 CREATE TABLE IF NOT EXISTS portfolio_holdings (

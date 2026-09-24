@@ -5,6 +5,7 @@ const NAV_LINKS = [
   { to: '/', label: 'Home', end: true },
   { to: '/etfs', label: 'ETFs' },
   { to: '/news', label: 'News' },
+  { to: '/portfolios', label: 'Portfolios' },
   { to: '/simulator', label: 'Simulator' },
   { to: '/strategies', label: 'Strategies' },
 ]

@@ -23,6 +23,26 @@ class PortfolioCreate(BaseModel):
         return self
 
 
+class PortfolioUpdate(BaseModel):
+    """Full replacement update: name, contribution, and holdings swap atomically.
+
+    Mirrors create validation (>=1 holding, each weight > 0) and adds the
+    production rule the simulator relies on: weights must sum to 1.0 within
+    +/- 0.01. The simulation engine re-normalizes weights at read time, but
+    enforcing the sum here keeps stored allocations honest for the UI.
+    """
+
+    name: str = Field(min_length=1, max_length=120)
+    monthly_contribution: float = Field(default=0.0, ge=0)
+    holdings: list[HoldingIn] = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def _check_weights_sum_to_one(self) -> "PortfolioUpdate":
+        if abs(sum(h.weight for h in self.holdings) - 1.0) > 0.01:
+            raise ValueError("holding weights must sum to 1.0 (within 0.01)")
+        return self
+
+
 class TickerOut(BaseModel):
     symbol: str
     name: str | None
@@ -50,6 +70,7 @@ class PortfolioOut(BaseModel):
     name: str
     monthly_contribution: float
     holdings: list[dict]
+    created_at: str | None = None
 
 
 class SimulationRequest(BaseModel):
@@ -96,6 +117,7 @@ class CrisisReplayRequest(BaseModel):
 __all__ = [
     "HoldingIn",
     "PortfolioCreate",
+    "PortfolioUpdate",
     "TickerOut",
     "PricePoint",
     "TickerPricesOut",

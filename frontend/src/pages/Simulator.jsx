@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { useLocation } from 'react-router-dom'
 import {
   Area,
@@ -187,6 +187,8 @@ export default function Simulator() {
 
   const { search } = useLocation()
   const [tickers, setTickers] = useState([])
+  const [portfolios, setPortfolios] = useState([])
+  const [selectedPortfolioId, setSelectedPortfolioId] = useState(null)
   const [name, setName] = useState('My Portfolio')
   const [contribution, setContribution] = useState(200)
   const [initialBalance, setInitialBalance] = useState(10000)
@@ -212,7 +214,40 @@ export default function Simulator() {
     fetchJSON('/tickers')
       .then(setTickers)
       .catch(() => {})
+    fetchJSON('/portfolios')
+      .then(setPortfolios)
+      .catch(() => {})
   }, [])
+
+  const applyPortfolio = useCallback((portfolio) => {
+    setName(portfolio.name)
+    setContribution(portfolio.monthly_contribution)
+    setHoldings(
+      portfolio.holdings.map((h) => ({
+        symbol: h.symbol,
+        weight: String(Math.round(h.weight * 100)),
+      })),
+    )
+  }, [])
+
+  // Deep link: /simulator?portfolio=ID loads that portfolio into the controls
+  // so "Open in Simulator" from the Portfolios page lands ready to run.
+  useEffect(() => {
+    const id = new URLSearchParams(search).get('portfolio')
+    if (!id || selectedPortfolioId) return
+    let cancelled = false
+    fetchJSON(`/portfolios/${id}`)
+      .then((portfolio) => {
+        if (!cancelled) {
+          setSelectedPortfolioId(portfolio.id)
+          applyPortfolio(portfolio)
+        }
+      })
+      .catch(() => {})
+    return () => {
+      cancelled = true
+    }
+  }, [search, selectedPortfolioId, applyPortfolio])
 
   useEffect(() => {
     if (!portfolioId || phase !== 'done') return
@@ -253,14 +288,37 @@ export default function Simulator() {
     setError(null)
     setCrisisData(null)
     try {
-      const portfolio = await fetchJSON('/portfolios', {
-        method: 'POST',
-        body: JSON.stringify({
-          name: name.trim() || 'My Portfolio',
-          monthly_contribution: Number(contribution),
-          holdings,
-        }),
-      })
+      // Weights are edited as percentages; the API stores fractions that sum
+      // to 1.0, so a reused portfolio converts before PATCHing.
+      const fractionHoldings = holdings.map((h) => ({
+        symbol: h.symbol,
+        weight: (Number(h.weight) || 0) / 100,
+      }))
+      let portfolio
+      if (selectedPortfolioId) {
+        portfolio = await fetchJSON(`/portfolios/${selectedPortfolioId}`, {
+          method: 'PATCH',
+          body: JSON.stringify({
+            name: name.trim() || 'My Portfolio',
+            monthly_contribution: Number(contribution),
+            holdings: fractionHoldings,
+          }),
+        })
+        setPortfolios((prev) =>
+          prev.map((p) => (p.id === portfolio.id ? portfolio : p)),
+        )
+      } else {
+        portfolio = await fetchJSON('/portfolios', {
+          method: 'POST',
+          body: JSON.stringify({
+            name: name.trim() || 'My Portfolio',
+            monthly_contribution: Number(contribution),
+            holdings,
+          }),
+        })
+        setSelectedPortfolioId(portfolio.id)
+        setPortfolios((prev) => [portfolio, ...prev])
+      }
       setPortfolioId(portfolio.id)
       const sim = await fetchJSON(`/portfolios/${portfolio.id}/simulate`, {
         method: 'POST',
@@ -449,6 +507,39 @@ export default function Simulator() {
           </div>
 
           <form className="space-y-5 p-4" onSubmit={runSimulation}>
+            <label className="block">
+              <span className="field-label">
+                <span>Portfolio</span>
+                <span className="font-mono text-xs normal-case text-ink-faint">
+                  {selectedPortfolioId ? 'saves to this portfolio' : 'creates a new one'}
+                </span>
+              </span>
+              <select
+                className="select"
+                value={selectedPortfolioId ?? ''}
+                onChange={(event) => {
+                  const value = event.target.value
+                  if (!value) {
+                    setSelectedPortfolioId(null)
+                    return
+                  }
+                  const id = Number(value)
+                  if (id === selectedPortfolioId) return
+                  setSelectedPortfolioId(id)
+                  fetchJSON(`/portfolios/${id}`)
+                    .then(applyPortfolio)
+                    .catch(() => {})
+                }}
+              >
+                <option value="">New portfolio…</option>
+                {portfolios.map((portfolio) => (
+                  <option key={portfolio.id} value={portfolio.id}>
+                    {portfolio.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+
             <label className="block">
               <span className="field-label">Portfolio name</span>
               <input

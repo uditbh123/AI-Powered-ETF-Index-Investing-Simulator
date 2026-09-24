@@ -24,8 +24,11 @@ def _db_path(database_url: str) -> Path:
 def get_connection() -> sqlite3.Connection:
     db_path = _db_path(settings.database_url)
     db_path.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(db_path)
+    conn = sqlite3.connect(db_path, check_same_thread=False)
     conn.row_factory = sqlite3.Row
+    # A connection is used on a single request thread at a time, but FastAPI's
+    # threaded yield-dependency teardown may call close() on a different worker
+    # thread; check_same_thread=False lets the exit path tear down safely.
     # PRAGMAs are per-connection; the ones in schema.sql do NOT persist across
     # connections, so apply them here on every new connection.
     conn.execute("PRAGMA journal_mode = WAL")
@@ -45,6 +48,12 @@ def init_db() -> None:
         # lack the newest schema columns (SQLite has no ALTER TABLE ... ADD
         # COLUMN IF NOT EXISTS).
         ensure_column(conn, "simulation_runs", "stats_json", "TEXT")
+        ensure_column(conn, "portfolios", "created_at", "TEXT")
+        # Legacy portfolios predate the column; stamp them with the boot date
+        # rather than leaving a NULL "created" shown in the UI.
+        conn.execute(
+            "UPDATE portfolios SET created_at = date('now') WHERE created_at IS NULL"
+        )
 
 
 def ensure_column(

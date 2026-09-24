@@ -487,3 +487,68 @@ evidence from the test suite is included.
 - **Files changed:** `frontend/src/pages/Simulator.jsx` (weight-input focus
   ring), `README.md`, `docs/screenshots/light-theme/controls/*`,
   `docs/ai_usage_log.md`.
+
+## Stage L2 -- Portfolios section (create → simulate through the UI)
+- **Found by:** implementation task (Stage L2: Portfolios UI + PATCH endpoint).
+- **What changed:**
+  - Backend: `PATCH /portfolios/{id}` (`app/routers/portfolios.py`), shared
+    `_resolve_holdings` (404 naming the unknown ticker), transactional
+    update+delete+insert of holdings with a single `commit()`; `PortfolioUpdate`
+    mirrors create rules and enforces `abs(sum(weights) - 1.0) <= 0.01` → 422
+    (`app/schemas.py`, docstring explains the deliberate strict 422 over silent
+    renormalization). `created_at` added to portfolios (`schema.sql` +
+    idempotent `ensure_column` + `date('now')` backfill for legacy rows in
+    `app/database.py`; inserts use `date('now')`; surfaced in every read).
+  - Frontend: new `frontend/src/pages/Portfolios.jsx` (list table with
+    Name/Holdings/Monthly/Created/Actions, create+edit form with search-to-add
+    holdings builder, per-row symbol/weight controls, live total-weight
+    indicator that flips `text-neg` → `text-pos` at 100%±1, token-only delete
+    confirm dialog with Escape/autofocus/`role=dialog`, empty + error states);
+    lazy route `/portfolios` + "Portfolios" top-nav item; Simulator gained a
+    portfolio selector, `applyPortfolio`, a `?portfolio=ID` deep link, and
+    `runSimulation` now PATCHes the selected portfolio (percent → fraction
+    conversion) or POSTs a new one.
+  - `frontend/src/api.js`: `fetchJSON` returns null on 204 (delete) and throws
+    on a non-JSON 200 (previously `.catch(() => null)` could return HTML that
+    leaked through a misconfigured base URL as `null` and crash callers — e.g.
+    `null.filter(...)` in Home).
+- **Deviations documented (by design):** `POST /portfolios` still does NOT
+  require sum-to-1.0 (only weights > 0 and positive total); the engine
+  renormalizes at read. PATCH deliberately adds the strict sum rule. The
+  Simulator POST path keeps sending the create payload unchanged (percentages
+  as before). Single-origin producers must build with `VITE_API_BASE_URL=/`
+  (as the container does); the default `/api` fetches an HTML 200 from the SPA
+  fallback on FastAPI's root.
+- **Bug found during verification (fixed here):** under concurrent load (Home
+  mounts ~14 parallel price/tickers fetches), FastAPI's threaded
+  yield-dependency teardown ran `conn.close()` on a different worker thread
+  than the one that opened the connection →
+  `sqlite3.ProgrammingError: SQLite objects created in a thread can only be
+  used in that same thread`, flipping otherwise-successful GETs to 500s
+  (`/portfolios` intermittently failed in the browser smoke). Fix:
+  `sqlite3.connect(db_path, check_same_thread=False)` in `get_connection()`
+  (safe: a connection is used on a single request thread; only the exit
+  `close()` may cross threads). Verified via a 12-round concurrent burst of
+  `/tickers/*/prices` + `/tickers` + `/portfolios`: 132 failures before, 0
+  after; occurs nowhere in the visible call stack otherwise.
+- **Note (pre-existing, not fixed here):** GET `/portfolios` (API) shadows the
+  SPA `/portfolios` route on a single-origin build, so a hard refresh of the
+  page returns JSON — same class as the tracked `/news` collision. In-app nav
+  (top nav / client-side links) is unaffected.
+- **Test evidence:** `tests/test_portfolio_patch.py` (6 tests: full rewrite
+  visible in results via distinct SPY 0.6%/mo vs QQQ 0.3%/mo curves, 404 for
+  missing portfolio / unknown ticker, 422 for missing / negative / overflow /
+  off-by-sum weights, name + contribution updates preserved) — backend suite
+  `181 → 187 passed`. `npm run lint` + `npm run build` clean
+  (`VITE_API_BASE_URL=/`). Headless Chrome CDP smoke of the full flow
+  (client-side nav to Portfolios → create with total-weight indicator → deep
+  link to Simulator → run → verify stored weights are fractions → edit free →
+  delete via confirm dialog): ALL PASSED; screenshots in
+  `docs/screenshots/light-theme/portfolios/`.
+- **Files changed:** `backend/schema.sql`, `backend/app/database.py`,
+  `backend/app/schemas.py`, `backend/app/dao/portfolios.py`,
+  `backend/app/routers/portfolios.py`, `backend/tests/test_portfolio_patch.py`,
+  `frontend/src/api.js`, `frontend/src/App.jsx`,
+  `frontend/src/components/TopNav.jsx`, `frontend/src/pages/Portfolios.jsx`,
+  `frontend/src/pages/Simulator.jsx`, `docs/manual_test.md`,
+  `docs/screenshots/light-theme/portfolios/*`, `docs/ai_usage_log.md`.

@@ -8,10 +8,31 @@ from fastapi import APIRouter, Depends, HTTPException
 from ..dao import portfolios as portfolio_dao
 from ..dao import tickers as ticker_dao
 from ..deps import get_db
-from ..schemas import PortfolioCreate, PortfolioOut
+from ..schemas import HoldingIn, PortfolioCreate, PortfolioOut, PortfolioUpdate
 from ..services.simulation import portfolio_monthly_returns_with_dates
 
 router = APIRouter(tags=["portfolios"])
+
+
+def _resolve_holdings(
+    conn: sqlite3.Connection, holdings: list[HoldingIn]
+) -> list[dict[str, object]]:
+    """Map payload holdings to catalog rows; raises 404 for unknown tickers.
+
+    Mirrors the create endpoint's lookup so PATCH and POST share behavior.
+    """
+    resolved = []
+    for holding in holdings:
+        ticker = ticker_dao.get_ticker(conn, holding.symbol.upper())
+        if ticker is None:
+            raise HTTPException(
+                status_code=404,
+                detail=f"ticker '{holding.symbol}' not in catalog",
+            )
+        resolved.append(
+            {"id": ticker["id"], "weight": holding.weight, "symbol": ticker["symbol"]}
+        )
+    return resolved
 
 
 @router.post("/portfolios", response_model=PortfolioOut, status_code=201)
@@ -20,15 +41,7 @@ def create_portfolio(
     conn: sqlite3.Connection = Depends(get_db),
 ) -> PortfolioOut:
     user_id = portfolio_dao.get_or_create_user(conn)
-    holdings = []
-    for holding in payload.holdings:
-        ticker = ticker_dao.get_ticker(conn, holding.symbol.upper())
-        if ticker is None:
-            raise HTTPException(
-                status_code=404,
-                detail=f"ticker '{holding.symbol}' not in catalog",
-            )
-        holdings.append({"id": ticker["id"], "weight": holding.weight, "symbol": ticker["symbol"]})
+    holdings = _resolve_holdings(conn, payload.holdings)
 
     portfolio_id = portfolio_dao.create_portfolio(
         conn,
@@ -40,11 +53,51 @@ def create_portfolio(
         portfolio_dao.add_holding(conn, portfolio_id, h["id"], h["weight"])
     conn.commit()
 
+    created_at = portfolio_dao.get_portfolio(conn, portfolio_id)["created_at"]
     return PortfolioOut(
         id=portfolio_id,
         name=payload.name,
         monthly_contribution=payload.monthly_contribution,
         holdings=[{"symbol": h["symbol"], "weight": h["weight"]} for h in holdings],
+        created_at=created_at,
+    )
+
+
+@router.patch("/portfolios/{portfolio_id}", response_model=PortfolioOut)
+def update_portfolio(
+    portfolio_id: int,
+    payload: PortfolioUpdate,
+    conn: sqlite3.Connection = Depends(get_db),
+) -> PortfolioOut:
+    """Full holdings replacement update, applied in one transaction.
+
+    Unequivocally 404s for a missing portfolio (checked before any write) and
+    for unknown tickers (raised before commit, so a failed replacement leaves
+    the existing holdings untouched). The weight-sum rule lives in
+    ``PortfolioUpdate`` -> 422.
+    """
+    if portfolio_dao.get_portfolio(conn, portfolio_id) is None:
+        raise HTTPException(status_code=404, detail="portfolio not found")
+    holdings = _resolve_holdings(conn, payload.holdings)
+
+    portfolio_dao.update_portfolio(
+        conn,
+        portfolio_id,
+        name=payload.name,
+        monthly_contribution=payload.monthly_contribution,
+    )
+    portfolio_dao.delete_holdings(conn, portfolio_id)
+    for h in holdings:
+        portfolio_dao.add_holding(conn, portfolio_id, h["id"], h["weight"])
+    conn.commit()
+
+    created_at = portfolio_dao.get_portfolio(conn, portfolio_id)["created_at"]
+    return PortfolioOut(
+        id=portfolio_id,
+        name=payload.name,
+        monthly_contribution=payload.monthly_contribution,
+        holdings=[{"symbol": h["symbol"], "weight": h["weight"]} for h in holdings],
+        created_at=created_at,
     )
 
 
@@ -59,6 +112,7 @@ def list_portfolios(conn: sqlite3.Connection = Depends(get_db)) -> list[Portfoli
                 name=row["name"],
                 monthly_contribution=row["monthly_contribution"],
                 holdings=[{"symbol": h["symbol"], "weight": h["weight"]} for h in holdings],
+                created_at=row["created_at"],
             )
         )
     return out
@@ -78,6 +132,7 @@ def get_portfolio(
         name=row["name"],
         monthly_contribution=row["monthly_contribution"],
         holdings=[{"symbol": h["symbol"], "weight": h["weight"]} for h in holdings],
+        created_at=row["created_at"],
     )
 
 

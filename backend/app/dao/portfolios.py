@@ -20,8 +20,8 @@ def create_portfolio(
     start_date: str | None = None,
 ) -> int:
     cur = conn.execute(
-        "INSERT INTO portfolios (user_id, name, monthly_contribution, start_date) "
-        "VALUES (?, ?, ?, ?)",
+        "INSERT INTO portfolios (user_id, name, monthly_contribution, start_date, created_at) "
+        "VALUES (?, ?, ?, ?, date('now'))",
         (user_id, name, monthly_contribution, start_date),
     )
     return cur.lastrowid
@@ -29,7 +29,7 @@ def create_portfolio(
 
 def get_portfolio(conn: sqlite3.Connection, portfolio_id: int) -> sqlite3.Row | None:
     return conn.execute(
-        "SELECT id, user_id, name, monthly_contribution, start_date "
+        "SELECT id, user_id, name, monthly_contribution, start_date, created_at "
         "FROM portfolios WHERE id = ?",
         (portfolio_id,),
     ).fetchone()
@@ -40,7 +40,7 @@ def get_portfolio_by_user_and_name(
 ) -> sqlite3.Row | None:
     """Look up a portfolio by owner + name (used for idempotent seeding)."""
     return conn.execute(
-        "SELECT id, user_id, name, monthly_contribution, start_date "
+        "SELECT id, user_id, name, monthly_contribution, start_date, created_at "
         "FROM portfolios WHERE user_id = ? AND name = ?",
         (user_id, name),
     ).fetchone()
@@ -48,7 +48,7 @@ def get_portfolio_by_user_and_name(
 
 def list_portfolios(conn: sqlite3.Connection) -> list[sqlite3.Row]:
     return conn.execute(
-        "SELECT id, user_id, name, monthly_contribution, start_date "
+        "SELECT id, user_id, name, monthly_contribution, start_date, created_at "
         "FROM portfolios ORDER BY id"
     ).fetchall()
 
@@ -64,6 +64,28 @@ def add_holding(
         (portfolio_id, ticker_id, weight),
     )
     return cur.lastrowid
+
+
+def update_portfolio(
+    conn: sqlite3.Connection,
+    portfolio_id: int,
+    name: str,
+    monthly_contribution: float,
+) -> bool:
+    """Update the scalar fields of a portfolio. Returns False when missing."""
+    cur = conn.execute(
+        "UPDATE portfolios SET name = ?, monthly_contribution = ? WHERE id = ?",
+        (name, monthly_contribution, portfolio_id),
+    )
+    return cur.rowcount > 0
+
+
+def delete_holdings(conn: sqlite3.Connection, portfolio_id: int) -> int:
+    """Remove every holding for a portfolio (full replacement step)."""
+    cur = conn.execute(
+        "DELETE FROM portfolio_holdings WHERE portfolio_id = ?", (portfolio_id,)
+    )
+    return cur.rowcount
 
 
 def list_holdings(conn: sqlite3.Connection, portfolio_id: int) -> list[sqlite3.Row]:
@@ -117,6 +139,8 @@ __all__ = [
     "get_portfolio_by_user_and_name",
     "list_portfolios",
     "add_holding",
+    "update_portfolio",
+    "delete_holdings",
     "list_holdings",
     "delete_portfolio",
 ]

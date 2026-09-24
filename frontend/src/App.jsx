@@ -8,6 +8,7 @@ const Home = lazy(() => import('./pages/Home'))
 const Etfs = lazy(() => import('./pages/Etfs'))
 const FinancialNews = lazy(() => import('./pages/FinancialNews'))
 const Simulator = lazy(() => import('./pages/Simulator'))
+const Portfolios = lazy(() => import('./pages/Portfolios'))
 const InvestingStrategies = lazy(() => import('./pages/InvestingStrategies'))
 const NotFound = lazy(() => import('./pages/NotFound'))
 
@@ -42,8 +43,9 @@ function App() {
             <Routes>
               <Route path="/" element={<Home />} />
               <Route path="/etfs" element={<Etfs />} />
-              <Route path="/simulator" element={<Simulator />} />
               <Route path="/news" element={<FinancialNews />} />
+              <Route path="/portfolios" element={<Portfolios />} />
+              <Route path="/simulator" element={<Simulator />} />
               <Route path="/strategies" element={<InvestingStrategies />} />
               <Route path="*" element={<NotFound />} />
             </Routes>
