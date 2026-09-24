@@ -333,4 +333,4 @@ evidence from the test suite is included.
 - **Files changed:** `frontend/src/pages/Simulator.jsx`, `frontend/tailwind.config.js`,
   `docs/screenshots/round4/` (desktop + mobile, incl. tall result-area shots).
 - **Test evidence:** frontend lint+build clean; backend suite `168 passed`.
-  Commit pending.
+  Commit `e2cdb75`.
