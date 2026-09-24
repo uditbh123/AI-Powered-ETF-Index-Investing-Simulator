@@ -290,4 +290,47 @@ evidence from the test suite is included.
   consistency, cached-stats equality, legacy-null served, monthly-returns shape
   + 404 + 400), `tests/test_database.py` (2 migration tests), and the new
   "Distribution statistics" section in `docs/data_methodology.md`.
-- **Test evidence:** `150 -> 168 passed`. Commit pending.
+- **Test evidence:** `150 -> 168 passed`. Commit `bf5a7df`.
+
+## Stage J  —  Insights frontend (stat cards, distribution histogram, monthly-returns heatmap)
+- **What changed:** frontend-only, additive in `frontend/src/pages/Simulator.jsx`
+  plus one new 11px type token in `frontend/tailwind.config.js`.
+  - J1: "Outcome insights" panel above the fan chart  —  five stat cards fed by
+    the Stage I `stats` payload: Probability of profit (%, pos/neg-toned by
+    >=/ < 50%), Median final value (p50), Worst case (p10), Upside / downside
+    (`stats.upside_downside_ratio`, `—` when null, pos/neg-toned), Median max
+    drawdown. Cards use the 11px uppercase micro-label + 24px mono value format
+    (new `text-11px` scale token; no arbitrary value classes).
+  - J2: final-value distribution histogram (`BarChart`, 20 bins, accent bars,
+    `isAnimationActive={false}`) in the same panel with a custom tooltip
+    (range + path count) and two marker lines: p50 (solid accent) and total
+    contributed (dashed dim). Marker buckets are matched by category label;
+    markers are skipped when p50 / contributed fall outside the binned range.
+  - J3: "Realized monthly returns" heatmap panel fed by
+    `GET /portfolios/{id}/monthly-returns`  —  one row per year, 12 month
+    columns, cell intensity scaled from `returns / 5%` via
+    `color-mix(in srgb, var(--up|--down) <alpha>%, transparent)` (integer
+    alpha, no gradients), strong cells flip to black text for contrast, native
+    `title` tooltips (`YYYY-MM · ±x.xx%`), a compact `loss → gain` legend, and
+    standalone loading / error / no-history states. The fetch fires only once a
+    portfolio exists and a run completes (deduped by effect deps, cancelled on
+    unmount).
+  - J4: when a run's `stats` is `null` (legacy pre-Stage-I run), the insights
+    panel collapses to a "Re-run to see insights" empty state; the heatmap still
+    renders because it does not depend on `stats`.
+- **Verification:** `npm run lint` (oxlint) clean; `npm run build` clean
+  (Simulator chunk 29.73  →  61.50 kB raw, 17.62 kB gzip, from the new
+  panels; entry chunk unchanged). Headless Edge DOM checks with a temporary,
+  `?autorun=1`-gated auto-run (removed before commit) confirmed real data
+  rendering: all five card values (98%, $72,725, $45,857, "—", -19.0%),
+  20-bin histogram with both marker lines, J/F/M/… month headers, per-year
+  rows with correct `color-mix` alphas (e.g. +2.24% → up 45%), and the J4
+  empty state when `stats` is forced null (heatmap still rendered). Backend
+  suite unaffected: 168 passed. Screenshots: `docs/screenshots/round4/`.
+- **Note:** legacy cached runs cannot be re-served (their `params_json` lacks
+  the `data_fingerprint` key used in modern cache lookups), so the J4 empty
+  state is defensive for legacy runs and any future stats-null responses.
+- **Files changed:** `frontend/src/pages/Simulator.jsx`, `frontend/tailwind.config.js`,
+  `docs/screenshots/round4/` (desktop + mobile, incl. tall result-area shots).
+- **Test evidence:** frontend lint+build clean; backend suite `168 passed`.
+  Commit pending.

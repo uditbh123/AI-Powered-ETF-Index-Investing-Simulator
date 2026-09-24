@@ -2,20 +2,26 @@ import { useEffect, useState } from 'react'
 import { useLocation } from 'react-router-dom'
 import {
   Area,
+  Bar,
+  BarChart,
   CartesianGrid,
   ComposedChart,
   Line,
+  ReferenceLine,
   ResponsiveContainer,
   Tooltip,
   XAxis,
   YAxis,
 } from 'recharts'
 import {
+  Activity,
   Calculator,
   Gauge,
   History,
+  Percent,
   Play,
   Plus,
+  Scale,
   Sparkles,
   Trash,
   TrendingDown,
@@ -43,6 +49,11 @@ function formatCurrency(value) {
     currency: 'USD',
     maximumFractionDigits: 0,
   })
+}
+
+function formatReturn(value) {
+  const pct = value * 100
+  return `${pct >= 0 ? '+' : ''}${pct.toFixed(2)}%`
 }
 
 function FieldSlider({ icon: Icon, label, value, min, max, step, onChange, render }) {
@@ -117,6 +128,21 @@ function CrisisFanTooltip({ active, payload }) {
   )
 }
 
+function HistogramTooltip({ active, payload }) {
+  if (!active || !payload?.length) return null
+  const point = payload[0].payload
+  return (
+    <div className="border border-edge bg-base px-3 py-2">
+      <div className="text-xs text-ink-faint">
+        {formatCurrency(point.low)} – {formatCurrency(point.high)}
+      </div>
+      <div className="mt-1 font-mono text-xs tabular-nums">
+        {point.count} {point.count === 1 ? 'path' : 'paths'}
+      </div>
+    </div>
+  )
+}
+
 function ToggleSwitch({ checked, onChange, title, subtitle }) {
   return (
     <button
@@ -179,12 +205,29 @@ export default function Simulator() {
   const [crisisData, setCrisisData] = useState(null)
   const [crisisLoading, setCrisisLoading] = useState(false)
   const [crisisError, setCrisisError] = useState(null)
+  const [monthlyReturns, setMonthlyReturns] = useState(null)
+  const [monthlyReturnsError, setMonthlyReturnsError] = useState(null)
 
   useEffect(() => {
     fetchJSON('/tickers')
       .then(setTickers)
       .catch(() => {})
   }, [])
+
+  useEffect(() => {
+    if (!portfolioId || phase !== 'done') return
+    let cancelled = false
+    fetchJSON(`/portfolios/${portfolioId}/monthly-returns`)
+      .then((rows) => {
+        if (!cancelled) setMonthlyReturns(rows)
+      })
+      .catch((e) => {
+        if (!cancelled) setMonthlyReturnsError(e.message)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [portfolioId, phase])
 
   function updateSetting(setter) {
     return (event) => setter(event.target.value)
@@ -291,6 +334,94 @@ export default function Simulator() {
         { icon: TrendingDown, label: 'Worst case (10th)', value: result.summary.worst_case_final_value, tone: 'tick-down' },
       ]
     : []
+
+  const stats = result?.stats
+  const insightCards = stats
+    ? [
+        {
+          icon: Percent,
+          label: 'Probability of profit',
+          value: `${(stats.probability_of_profit * 100).toFixed(0)}%`,
+          tone: stats.probability_of_profit >= 0.5 ? 'text-pos' : 'text-neg',
+        },
+        {
+          icon: Gauge,
+          label: 'Median final value',
+          value: formatCurrency(stats.final_percentiles.p50),
+          tone: 'text-accent',
+        },
+        {
+          icon: TrendingDown,
+          label: 'Worst case (p10)',
+          value: formatCurrency(stats.final_percentiles.p10),
+          tone: 'text-ink',
+        },
+        {
+          icon: Scale,
+          label: 'Upside / downside',
+          value:
+            stats.upside_downside_ratio === null
+              ? '—'
+              : `${stats.upside_downside_ratio.toFixed(2)}×`,
+          tone:
+            stats.upside_downside_ratio === null
+              ? 'text-ink-dim'
+              : stats.upside_downside_ratio >= 1
+                ? 'text-pos'
+                : 'text-neg',
+        },
+        {
+          icon: Activity,
+          label: 'Median max drawdown',
+          value: `${(stats.median_max_drawdown * 100).toFixed(1)}%`,
+          tone: 'text-ink',
+        },
+      ]
+    : []
+
+  const histogramData = stats
+    ? stats.histogram.bin_edges.slice(0, -1).map((low, i) => {
+        const high = stats.histogram.bin_edges[i + 1]
+        const mid = (low + high) / 2
+        return {
+          count: stats.histogram.counts[i],
+          low,
+          high,
+          label: `${Math.round(mid / 1000)}k`,
+          value: mid,
+        }
+      })
+    : []
+
+  const histogramBucketFor = (value) => {
+    if (!histogramData.length) return null
+    const edges = stats.histogram.bin_edges
+    if (value < edges[0] || value > edges[edges.length - 1]) return null
+    const index = edges.findIndex((e) => e >= value)
+    const bucket = histogramData[Math.min(Math.max(index - 1, 0), histogramData.length - 1)]
+    return bucket?.label ?? null
+  }
+
+  const heatmapYears = {}
+  for (const row of monthlyReturns ?? []) {
+    heatmapYears[row.year] ??= Array(12).fill(null)
+    heatmapYears[row.year][row.month - 1] = row.return
+  }
+  const heatYears = Object.keys(heatmapYears).map(Number).sort((a, b) => a - b)
+
+  function heatCellStyle(value) {
+    if (value === null) return {}
+    const intensity = Math.min(Math.abs(value) / 0.05, 1)
+    if (value >= 0) {
+      return { backgroundColor: `color-mix(in srgb, var(--up) ${Math.round(intensity * 100)}%, transparent)` }
+    }
+    return { backgroundColor: `color-mix(in srgb, var(--down) ${Math.round(intensity * 100)}%, transparent)` }
+  }
+
+  function heatCellText(value) {
+    if (value === null) return 'text-ink-dim'
+    return Math.abs(value) / 0.05 >= 0.6 ? 'text-black' : 'text-ink'
+  }
 
   return (
     <div className="space-y-4">
@@ -466,6 +597,95 @@ export default function Simulator() {
                 ))}
               </div>
 
+              {stats ? (
+                <div className="panel bg-base">
+                  <div className="panel-title">
+                    <span>Outcome insights</span>
+                    <span className="font-mono text-xs normal-case text-ink-faint">
+                      {(result.params.n_simulations ?? 1000).toLocaleString()} simulated paths
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-2 gap-x-4 gap-y-5 p-4 sm:grid-cols-3 xl:grid-cols-5">
+                    {insightCards.map(({ icon: Icon, label, value, tone }) => (
+                      <div key={label}>
+                        <span className="flex items-center gap-1.5 text-11px font-semibold uppercase tracking-widest text-ink-faint">
+                          <Icon size={12} strokeWidth={1.8} />
+                          {label}
+                        </span>
+                        <span className={`mt-1 block font-mono text-xl tabular-nums ${tone}`}>
+                          {value}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="border-t border-edge px-4 pb-4 pt-3">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <span className="text-xs font-semibold uppercase tracking-widest text-ink-soft">
+                        Final value distribution
+                      </span>
+                      <span className="flex items-center gap-3 font-mono text-xs text-ink-faint">
+                        <span className="flex items-center gap-1.5">
+                          <span className="h-0.5 w-4 bg-accent" />
+                          median
+                        </span>
+                        <span className="flex items-center gap-1.5">
+                          <span className="h-0.5 w-4 border-b border-dashed border-ink-dim" />
+                          total contributed
+                        </span>
+                      </span>
+                    </div>
+                    <div className="mt-3 h-40">
+                      <div
+                        className="h-full w-full"
+                        role="img"
+                        aria-label="Histogram of simulated final portfolio values"
+                      >
+                        <ResponsiveContainer width="100%" height="100%">
+                          <BarChart data={histogramData} margin={{ top: 4, right: 8, bottom: 0, left: 0 }}>
+                            <CartesianGrid stroke="var(--chart-grid)" strokeDasharray="3 3" vertical={false} />
+                            <XAxis
+                              dataKey="label"
+                              tick={{ fill: 'var(--chart-axis)', fontSize: 10 }}
+                              tickLine={false}
+                              axisLine={{ stroke: 'var(--chart-grid)' }}
+                              interval={Math.max(1, Math.floor(histogramData.length / 6))}
+                            />
+                            <YAxis tick={false} tickLine={false} axisLine={false} width={2} />
+                            <Tooltip
+                              cursor={{ fill: 'rgba(255, 255, 255, 0.05)' }}
+                              content={<HistogramTooltip />}
+                            />
+                            <Bar dataKey="count" fill="var(--chart-line)" fillOpacity={0.75} isAnimationActive={false} />
+                            {histogramBucketFor(stats.final_percentiles.p50) && (
+                              <ReferenceLine
+                                x={histogramBucketFor(stats.final_percentiles.p50)}
+                                stroke="var(--chart-line)"
+                                strokeWidth={1.5}
+                              />
+                            )}
+                            {histogramBucketFor(stats.total_contributed) && (
+                              <ReferenceLine
+                                x={histogramBucketFor(stats.total_contributed)}
+                                stroke="var(--ink-dim)"
+                                strokeDasharray="4 3"
+                              />
+                            )}
+                          </BarChart>
+                        </ResponsiveContainer>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div className="panel flex flex-col gap-3 px-6 py-10">
+                  <h3 className="text-base font-semibold text-ink">Outcome insights</h3>
+                  <p className="max-w-prose text-sm text-ink-soft">
+                    This run predates the insights backend. Re-run the simulation to see
+                    outcome statistics, the final-value distribution, and the monthly-returns heatmap.
+                  </p>
+                </div>
+              )}
+
               <div className="panel bg-base">
                 <div className="panel-title">
                   <span>Growth fan chart · 10th–90th percentile</span>
@@ -528,6 +748,57 @@ export default function Simulator() {
                     </ComposedChart>
                   </ResponsiveContainer>
                   </div>
+                </div>
+              </div>
+
+              <div className="panel bg-base">
+                <div className="panel-title">
+                  <span>Realized monthly returns</span>
+                  <span className="flex items-center gap-2 font-mono text-xs normal-case text-ink-faint">
+                    <span className="flex items-center gap-1.5">
+                      <span className="inline-block h-2.5 w-6" style={{ background: 'linear-gradient(90deg, var(--down), rgba(255, 255, 255, 0.05) 50%, var(--up))' }} />
+                      loss → gain
+                    </span>
+                  </span>
+                </div>
+
+                <div className="overflow-x-auto p-4">
+                  {monthlyReturnsError ? (
+                    <p className="text-xs text-neg">Error: {monthlyReturnsError}</p>
+                  ) : !monthlyReturns ? (
+                    <p className="text-xs text-ink-faint">Loading monthly returns…</p>
+                  ) : (
+                    <>
+                      <div className="min-w-[560px]">
+                        <div className="flex items-center gap-1 pb-1 pl-10 pr-1">
+                          <span className="w-24 shrink-0 font-mono text-xs text-ink-faint">Year</span>
+                          {Array.from({ length: 12 }, (_, m) => (
+                            <span key={m} className="flex-1 text-center font-mono text-11px text-ink-dim">
+                              {['J', 'F', 'M', 'A', 'M', 'J', 'J', 'A', 'S', 'O', 'N', 'D'][m]}
+                            </span>
+                          ))}
+                        </div>
+                        {heatYears.map((year) => (
+                          <div key={year} className="flex items-center gap-1 py-0.5">
+                            <span className="w-24 shrink-0 font-mono text-xs text-ink-faint">{year}</span>
+                            {heatmapYears[year].map((value, month) => (
+                              <span
+                                key={month}
+                                title={`${year}-${String(month + 1).padStart(2, '0')} · ${value === null ? 'no data' : formatReturn(value)}`}
+                                className={`flex-1 rounded-none border ${value === null ? 'border-base bg-base' : 'border-transparent'} px-0 py-1 text-right font-mono text-xs tabular-nums ${value === null ? '' : heatCellText(value)}`}
+                                style={heatCellStyle(value)}
+                              >
+                                {value === null ? '·' : formatReturn(value)}
+                              </span>
+                            ))}
+                          </div>
+                        ))}
+                        {heatYears.length === 0 && (
+                          <p className="text-xs text-ink-faint">No monthly return history yet.</p>
+                        )}
+                      </div>
+                    </>
+                  )}
                 </div>
               </div>
 

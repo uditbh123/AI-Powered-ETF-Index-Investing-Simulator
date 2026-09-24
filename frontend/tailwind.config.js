@@ -61,6 +61,7 @@ export default {
       },
       // Fixed type scale (px). Body line-height 1.5, headings 1.2.
       fontSize: {
+        '11px': ['11px', '1.5'],
         xs: ['12px', '1.5'],
         sm: ['14px', '1.5'],
         base: ['16px', '1.5'],
