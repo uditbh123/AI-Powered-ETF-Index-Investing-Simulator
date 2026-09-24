@@ -3,40 +3,45 @@ export default {
   content: ['./index.html', './src/**/*.{js,jsx,ts,tsx}'],
   theme: {
     extend: {
+      // Institutional light palette. All surfaces/text resolve from these
+      // tokens; derived values (alphas/tints) are written as rgba() of the
+      // exact palette hex so nothing new is introduced.
       colors: {
         base: {
-          DEFAULT: '#000000',
-          deep: '#000000',
-          panel: '#000000',
-          elevated: '#0d0d0d',
-          hover: '#0d0d0d',
+          DEFAULT: '#F6F7F9', // page background
+          deep: '#F6F7F9',
+          panel: '#FFFFFF', // surface
+          elevated: '#FFFFFF', // surface
+          hover: '#EEF0F3', // hover / subtle fill
         },
         edge: {
-          DEFAULT: 'rgba(255, 255, 255, 0.12)',
-          subtle: 'rgba(255, 255, 255, 0.05)',
-          strong: 'rgba(255, 255, 255, 0.22)',
+          DEFAULT: '#E2E5EA', // border
+          subtle: '#EEF0F3', // soft divider (surface-underlying tint)
+          strong: 'rgba(22, 24, 29, 0.18)', // ink-derived emphasis border
         },
         ink: {
-          DEFAULT: '#ffffff',
-          soft: '#a3a3a3',
-          faint: '#808080',
-          dim: '#5e5e5e',
+          DEFAULT: '#16181D', // primary text
+          soft: '#5A6270', // secondary
+          faint: '#8A919E', // muted
+          dim: '#8A919E', // muted (placeholders)
         },
         accent: {
-          DEFAULT: '#4cc2ff',
-          dim: '#2d7fb8',
+          DEFAULT: '#0B5FFF',
+          dim: 'rgba(11, 95, 255, 0.65)', // accent-derived
         },
         pos: {
-          DEFAULT: '#16c98e',
-          dim: '#0e8f67',
+          DEFAULT: '#0E7C3A',
+          dim: 'rgba(14, 124, 58, 0.7)', // pos-derived
         },
         neg: {
-          DEFAULT: '#ff5c6c',
-          dim: '#c13a4c',
+          DEFAULT: '#C62828',
+          dim: 'rgba(198, 40, 40, 0.7)', // neg-derived
         },
+        // Warning semantics reuse the loss red (institutional alert color);
+        // keeps every value inside the fixed palette.
         warn: {
-          DEFAULT: '#f5c15c',
-          dim: '#a97f2e',
+          DEFAULT: '#C62828',
+          dim: 'rgba(198, 40, 40, 0.7)',
         },
       },
       fontFamily: {
@@ -70,11 +75,12 @@ export default {
         '2xl': ['32px', '1.2'],
       },
       boxShadow: {
-        panel: 'none',
+        // Single soft elevation token for cards/panels on light.
+        panel: '0 1px 2px rgba(22, 24, 29, 0.06)',
         'accent-glow': 'none',
       },
       borderColor: {
-        DEFAULT: 'rgba(255, 255, 255, 0.12)',
+        DEFAULT: '#E2E5EA',
       },
     },
   },

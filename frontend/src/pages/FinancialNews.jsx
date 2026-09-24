@@ -80,7 +80,7 @@ export default function FinancialNews() {
       </div>
 
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex gap-1 border border-edge-subtle bg-white/5 p-1">
+        <div className="flex gap-1 border border-edge-subtle bg-base-hover p-1">
           {CATEGORIES.map((c) => (
             <button
               key={c.value}
@@ -89,8 +89,8 @@ export default function FinancialNews() {
               className={[
                 'px-2.5 py-1 text-xs font-medium uppercase tracking-widest transition-colors',
                 category === c.value
-                  ? 'bg-white text-black'
-                  : 'text-ink-soft hover:text-white',
+                  ? 'bg-ink text-white'
+                  : 'text-ink-soft hover:text-ink',
               ].join(' ')}
             >
               {c.label}
@@ -106,8 +106,8 @@ export default function FinancialNews() {
               className={[
                 'border border-edge px-2 py-1 font-mono text-xs transition-colors',
                 days === option
-                  ? 'border-white/50 bg-white/10 text-white'
-                  : 'text-ink-soft hover:text-white',
+                  ? 'border-accent bg-accent/10 text-accent'
+                  : 'text-ink-soft hover:text-ink',
               ].join(' ')}
             >
               {option}d
@@ -199,9 +199,9 @@ export default function FinancialNews() {
 
       {loading && (
         <div className="panel space-y-2 p-4">
-          <div className="h-4 w-1/3 bg-white/5" />
-          <div className="h-9 bg-white/5" />
-          <div className="h-9 bg-white/5" />
+          <div className="h-4 w-1/3 bg-base-hover" />
+          <div className="h-9 bg-base-hover" />
+          <div className="h-9 bg-base-hover" />
         </div>
       )}
 

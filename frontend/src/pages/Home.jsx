@@ -114,8 +114,8 @@ function WatchRow({ ticker, prices, active, onSelect }) {
       className={[
         'flex w-full items-center gap-2 border-l-2 px-3 py-2 text-left transition-colors',
         active
-          ? 'border-accent bg-white/5'
-          : 'border-transparent hover:border-white/20 hover:bg-white/5',
+          ? 'border-accent bg-base-hover'
+          : 'border-transparent hover:border-ink/20 hover:bg-base-hover',
       ].join(' ')}
     >
       <span className="min-w-0 flex-1">
@@ -147,7 +147,7 @@ function WatchRow({ ticker, prices, active, onSelect }) {
 function PriceTooltip({ active, payload, label, symbol }) {
   if (!active || !payload?.length) return null
   return (
-    <div className="border border-edge bg-base px-3 py-2">
+    <div className="border border-edge bg-white px-3 py-2 shadow-panel">
       <div className="text-xs text-ink-faint">
         {symbol} · {label}
       </div>
@@ -264,7 +264,7 @@ export default function Home() {
     <div className="flex h-full min-h-0 flex-col overflow-y-auto lg:flex-row lg:overflow-hidden">
       <h1 className="sr-only">Market dashboard</h1>
       {/* ---- Primary chart pane ---- */}
-      <section className="flex min-h-[460px] min-w-0 flex-1 flex-col border-b border-white/10 lg:min-h-0 lg:border-b-0 lg:border-r">
+      <section className="flex min-h-[460px] min-w-0 flex-1 flex-col border-b border-edge lg:min-h-0 lg:border-b-0 lg:border-r">
         <div className="flex flex-wrap items-center gap-x-5 gap-y-2 px-4 pb-3 pt-2.5">
           <div className="min-w-0">
             <div className="flex items-center gap-2">
@@ -320,8 +320,8 @@ export default function Home() {
                   className={[
                     'px-1.5 py-0.5 font-mono text-xs transition-colors',
                     range === key
-                      ? 'bg-white text-black'
-                      : 'text-ink-faint hover:text-white',
+                      ? 'bg-ink text-white'
+                      : 'text-ink-faint hover:text-ink',
                   ].join(' ')}
                 >
                   {key}
@@ -358,7 +358,7 @@ export default function Home() {
                 />
                 <XAxis
                   dataKey="date"
-                  tick={{ fill: 'var(--chart-axis)', fontSize: 11 }}
+                  tick={{ fill: 'var(--chart-axis)', fontSize: 12 }}
                   tickLine={false}
                   axisLine={{ stroke: 'var(--chart-grid)' }}
                   minTickGap={56}
@@ -366,7 +366,7 @@ export default function Home() {
                 />
                 <YAxis
                   domain={['auto', 'auto']}
-                  tick={{ fill: 'var(--chart-axis)', fontSize: 11 }}
+                  tick={{ fill: 'var(--chart-axis)', fontSize: 12 }}
                   tickLine={false}
                   axisLine={false}
                   width={56}
@@ -375,7 +375,7 @@ export default function Home() {
                 <Tooltip
                   content={<PriceTooltip symbol={activeSymbol} />}
                   cursor={{
-                    stroke: 'rgba(255,255,255,0.25)',
+                    stroke: 'color-mix(in srgb, var(--chart-line) 45%, transparent)',
                     strokeDasharray: '3 3',
                   }}
                 />
@@ -433,7 +433,7 @@ export default function Home() {
           {loadingList ? (
             <div className="space-y-1 p-3">
               {[0, 1, 2, 3, 4, 5].map((i) => (
-                <div key={i} className="h-11 bg-white/5" />
+                <div key={i} className="h-11 bg-base-hover" />
               ))}
             </div>
           ) : listError ? (

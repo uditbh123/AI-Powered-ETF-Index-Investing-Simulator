@@ -392,3 +392,51 @@ evidence from the test suite is included.
   `frontend/src/api.js`, `Dockerfile`, `.dockerignore`, `AGENTS.md`, `README.md`,
   `docs/deployment.md`.
 - **Commits:** `cd86d2e` (K1); `5b5fa81` (K2).
+
+## Stage L3 -- Institutional light retheme
+- **Found by:** implementation task (Stage L3 of `docs/PROJECT.md`).
+- **What changed:** dark quant-terminal -> institutional light, token-only (no
+  layout/spacing/structure/component-logic changes):
+  - Full palette swap in `frontend/tailwind.config.js` (exact values: background
+    #F6F7F9, surface #FFFFFF, hover #EEF0F3, border #E2E5EA, ink #16181D,
+    secondary #5A6270, muted #8A919E, accent #0B5FFF, pos #0E7C3A, neg #C62828;
+    warn reuses neg red). Derived values (`.dim*`, `edge.strong`) are written
+    as rgba() of the exact palette hex; `warn` gains a named `#C62828` alias.
+    Single elevation token `boxShadow.panel = 0 1px 2px rgba(22,24,29,0.06)`.
+  - `index.css`: chart vars (`--chart-grid` #E2E5EA, `--chart-axis` #5A6270,
+    `--chart-line` #0B5FFF, `--up`/`--down` from pos/neg), `color-scheme: light`,
+    `.panel`/`.btn`/`.btn-primary`/`.chip`/`.input`/`.select` restyled on
+    tokens, plus full L1 slider CSS (16px accent thumb, 4px edge track, accent
+    focus ring) and global `:focus-visible` outlines.
+  - `index.html` theme-color #F6F7F9 + inline no-dark-flash style and
+    `color-scheme: light`; `public/favicon.svg` and `public/og-image.png`
+    regenerated for the light palette (og card 1200x630, candlestick motif).
+  - AmbientDataGrid kept but recolored to a near-invisible #E2E5EA grid
+    (alpha 0.35) - canvas interaction retained, decision verified by screenshot.
+  - Straggler sweep in `Home.jsx` (watch-row hover/active, range pills, tooltip
+    white+panel shadow, axis 12px, accent-dim cursor), `Simulator.jsx` (tooltips
+    white, toggle switch, weight boxes, heatmap null-cell + strong-cell
+    contrast flip to white text, histogram axis/bar/cursor, fan + crisis axes
+    12px + accent cursors, ReferenceLine var fix), `Etfs.jsx` (sticky thead
+    white, skeleton fills), `FinancialNews.jsx` (category/day toggle pills
+    tokens), `TopNav.jsx` (hover:text-ink, brand text-ink).
+  - Fresh screenshots: `docs/screenshots/light-theme/` (5 pages x desktop
+    1440x900 + mobile 390x844); README embeds point there (dark history kept in
+    `before|after/`).
+- **Note (pre-existing, not fixed here - production route collision):** a GET
+  `/news` API route shadows the SPA `/news` route on a single-origin build, so
+  a hard refresh of `/news` returns the API's 422 JSON. In dev the Vite
+  `/api` proxy avoids it. Left as-is for L3 (theme-only stage); tracked for a
+  future stage.
+- **Test evidence:** `npm run lint` clean; `npm run build` clean after fixing
+  a Tailwind constrain: a color key named `hover` cannot be used as
+  `hover:bg-hover` inside `@apply` (and `bg-hover` alone is not generated - the
+  token lives at `base.hover` -> `bg-base-hover`). Backend untouched by L3.
+  WCAG contrast on the new palette: ink 17.8:1, secondary 6.2:1, accent 5.1:1,
+  white-on-accent 5.1:1, pos 5.3:1, neg 5.6:1 (all >= AA normal text).
+- **Files changed:** `frontend/tailwind.config.js`, `frontend/src/index.css`,
+  `frontend/index.html`, `frontend/public/favicon.svg`, `frontend/public/og-image.png`,
+  `frontend/src/components/AmbientDataGrid.jsx`, `frontend/src/components/TopNav.jsx`,
+  `frontend/src/pages/Home.jsx`, `frontend/src/pages/Simulator.jsx`,
+  `frontend/src/pages/Etfs.jsx`, `frontend/src/pages/FinancialNews.jsx`,
+  `README.md`, `docs/screenshots/light-theme/*`, `docs/ai_usage_log.md`.

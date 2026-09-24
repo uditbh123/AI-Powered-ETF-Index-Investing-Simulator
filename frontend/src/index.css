@@ -5,12 +5,12 @@
 /* Shared visual tokens (recharts + any runtime styling). Values source only
  from tailwind.config.js via theme(); no hex literals outside the config. */
 :root {
-  --chart-grid: theme('colors.edge.subtle');
-  --chart-axis: theme('colors.ink.dim');
-  --chart-line: theme('colors.accent.DEFAULT');
-  --up: theme('colors.pos.DEFAULT');
-  --down: theme('colors.neg.DEFAULT');
-  color-scheme: dark;
+  --chart-grid: theme('colors.edge.DEFAULT'); /* #E2E5EA grid lines */
+  --chart-axis: theme('colors.ink.soft'); /* #5A6270 secondary tick text */
+  --chart-line: theme('colors.accent.DEFAULT'); /* #0B5FFF */
+  --up: theme('colors.pos.DEFAULT'); /* #0E7C3A */
+  --down: theme('colors.neg.DEFAULT'); /* #C62828 */
+  color-scheme: light;
 }
 
 html,
@@ -19,7 +19,7 @@ body {
 }
 
 body {
-  @apply bg-base font-sans text-white antialiased;
+  @apply bg-base font-sans text-ink antialiased;
   font-variant-numeric: tabular-nums;
 }
 
@@ -34,13 +34,13 @@ body {
 }
 
 ::selection {
-  @apply bg-white text-black;
+  @apply bg-accent text-white;
 }
 
-/* Slim, dark scrollbars */
+/* Slim scrollbars, ink-tinted for light surfaces */
 * {
   scrollbar-width: thin;
-  scrollbar-color: theme('colors.ink.dim') transparent;
+  scrollbar-color: rgba(22, 24, 29, 0.25) transparent;
 }
 
 *::-webkit-scrollbar {
@@ -49,7 +49,8 @@ body {
 }
 
 *::-webkit-scrollbar-thumb {
-  @apply bg-white/20;
+  background: rgba(22, 24, 29, 0.25);
+  border-radius: 9999px;
 }
 
 *::-webkit-scrollbar-track {
@@ -57,9 +58,9 @@ body {
 }
 
 @layer components {
-  /* Terminal surface: true black, structure via spacing and single borders */
+  /* Light surface card: white panel, 1px border, single soft elevation */
   .panel {
-    @apply border border-edge bg-base;
+    @apply border border-edge bg-base-panel shadow-panel;
   }
 
   .panel-title {
@@ -74,15 +75,21 @@ body {
   }
 
   .field-value {
-    @apply font-mono text-sm text-white;
+    @apply font-mono text-sm text-ink;
   }
 
+  /* Form controls: white surfaces, edge borders, accent focus ring */
   .input,
   .select,
   .select-native {
-    @apply w-full border border-edge bg-white/5 px-2.5 py-1.5
-      text-sm text-white outline-none transition-colors
-      placeholder:text-ink-dim focus:border-white/40 focus:ring-1 focus:ring-white/20;
+    @apply w-full border border-edge bg-white px-2.5 py-1.5
+      text-sm text-ink shadow-panel outline-none transition-colors
+      placeholder:text-ink-dim hover:border-ink-faint
+      focus:border-accent focus:ring-2 focus:ring-accent/25;
+  }
+
+  .select option {
+    @apply bg-white text-ink;
   }
 
   .input[type='number'] {
@@ -98,43 +105,78 @@ body {
 
   /* Secondary buttons */
   .btn {
-    @apply inline-flex items-center justify-center gap-1.5 border
-      border-edge bg-base px-3 py-1.5 text-sm font-medium text-ink-soft
-      transition-colors hover:border-white/40 hover:bg-white/10 hover:text-white
+    @apply inline-flex items-center justify-center gap-1.5 border border-edge
+      bg-white px-3 py-1.5 text-sm font-medium text-ink-soft
+      shadow-panel transition-colors hover:border-ink/25 hover:text-ink
+      focus-visible:ring-2 focus-visible:ring-accent/40
       disabled:pointer-events-none disabled:opacity-40;
   }
 
-  /* Primary action: stark white 1px border; inverts on hover */
+  .btn:hover {
+    background-color: theme('colors.base.hover');
+  }
+
+  /* Primary action: solid accent fill with white label on light */
   .btn-primary {
-    @apply border border-white bg-base px-3 py-1.5 text-sm font-semibold
-      text-white transition-colors hover:bg-white hover:text-black
+    @apply border border-accent bg-accent px-3 py-1.5 text-sm font-semibold
+      text-white shadow-panel transition-colors hover:bg-accent/90
+      focus-visible:ring-2 focus-visible:ring-accent/40
       disabled:pointer-events-none disabled:opacity-40;
   }
 
   .btn-danger-ghost {
     @apply border-transparent bg-transparent text-ink-faint
-      hover:border-white/30 hover:bg-white/5 hover:text-neg;
+      hover:border-neg/30 hover:bg-neg/5 hover:text-neg
+      focus-visible:ring-2 focus-visible:ring-neg/30;
   }
 
-  /* Range sliders */
+  /* Range sliders: 4px edge track + 16px accent thumb on both engines */
   .slider {
-    @apply h-1.5 w-full cursor-pointer appearance-none bg-white/10
-      accent-white;
+    @apply h-1.5 w-full cursor-pointer appearance-none bg-transparent;
+  }
+
+  .slider::-webkit-slider-runnable-track {
+    height: 4px;
+    border-radius: 9999px;
+    background: theme('colors.edge.DEFAULT');
   }
 
   .slider::-webkit-slider-thumb {
     -webkit-appearance: none;
-    @apply h-3.5 w-3.5 border border-white bg-base;
+    margin-top: -6px; /* center a 16px thumb on a 4px track */
+    height: 16px;
+    width: 16px;
+    border-radius: 9999px;
+    background: theme('colors.accent.DEFAULT');
+    border: 2px solid theme('colors.base.panel');
+    box-shadow: theme('boxShadow.panel');
+  }
+
+  .slider::-moz-range-track {
+    height: 4px;
+    border-radius: 9999px;
+    background: theme('colors.edge.DEFAULT');
   }
 
   .slider::-moz-range-thumb {
-    @apply h-3.5 w-3.5 border border-white bg-base;
+    height: 16px;
+    width: 16px;
+    border-radius: 9999px;
+    background: theme('colors.accent.DEFAULT');
+    border: 2px solid theme('colors.base.panel');
+    box-shadow: theme('boxShadow.panel');
+  }
+
+  .slider:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 2px theme('colors.base.DEFAULT'),
+      0 0 0 4px theme('colors.accent.DEFAULT');
   }
 
   /* Chips + misc */
   .chip {
     @apply inline-flex items-center gap-1 border border-edge-subtle
-      bg-white/5 px-1.5 py-0.5 font-mono text-xs text-ink-soft;
+      bg-base-hover px-1.5 py-0.5 font-mono text-xs text-ink-soft;
   }
 
   .tick-up {
@@ -143,5 +185,13 @@ body {
 
   .tick-down {
     @apply text-neg;
+  }
+
+  /* Keyboard focus must remain visible on every interactive control */
+  button:focus-visible,
+  a:focus-visible,
+  [role='switch']:focus-visible {
+    outline: 2px solid theme('colors.accent.DEFAULT');
+    outline-offset: 2px;
   }
 }

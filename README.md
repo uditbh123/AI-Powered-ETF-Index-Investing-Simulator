@@ -171,14 +171,15 @@ npm run build   # production build to dist/
 
 ## Screenshots
 
-The quant-terminal UI. Before/after snapshots of every page at desktop and
-mobile widths live in `docs/screenshots/before/` and `docs/screenshots/after/`.
+The institutional light-theme UI. Every page at desktop (1440×900) and
+mobile (390×844) widths lives in `docs/screenshots/light-theme/`;
+dark-theme history is preserved under `docs/screenshots/before|after/`.
 
-![ETF Terminal — Home dashboard with price chart and watchlist](docs/screenshots/after/desktop_Home.png)
+![ETF Simulator — Home dashboard with price chart and watchlist](docs/screenshots/light-theme/desktop/desktop_Home.png)
 
-![ETF screener — sortable screening stats from stored price history](docs/screenshots/after/desktop_Etfs.png)
+![ETF screener — sortable screening stats from stored price history](docs/screenshots/light-theme/desktop/desktop_Etfs.png)
 
-![Monte Carlo simulator — growth fan chart with crisis replay](docs/screenshots/after/desktop_Simulator.png)
+![Monte Carlo simulator — growth fan chart with crisis replay](docs/screenshots/light-theme/desktop/desktop_Simulator.png)
 
 ## Deployment
 

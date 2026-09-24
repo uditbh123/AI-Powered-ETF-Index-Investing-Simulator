@@ -14,7 +14,7 @@ function linkClass(isActive) {
     'flex h-full shrink-0 items-center border-b-2 px-3 text-sm font-medium transition-colors',
     isActive
       ? 'border-accent text-accent'
-      : 'border-transparent text-ink-soft hover:text-white',
+      : 'border-transparent text-ink-soft hover:text-ink',
   ].join(' ')
 }
 
@@ -32,7 +32,7 @@ export default function TopNav() {
             <ChartCandlestick size={15} strokeWidth={2} />
           </span>
           <span className="flex flex-col">
-            <span className="text-sm font-semibold tracking-wide text-white">
+            <span className="text-sm font-semibold tracking-wide text-ink">
               ETF Simulator
             </span>
             <span className="mt-0.5 hidden text-xs text-ink-faint sm:block">

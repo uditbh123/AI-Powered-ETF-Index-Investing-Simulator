@@ -1,7 +1,8 @@
 import { useEffect, useRef } from 'react'
 
 const SPACING = 56 // px between grid lines
-const GRID_ALPHA = 0.03
+// Light theme: a near-invisible border-tinted grid (E2E5EA on F6F7F9).
+const GRID_ALPHA = 0.35
 
 export default function AmbientDataGrid() {
   const canvasRef = useRef(null)
@@ -24,7 +25,7 @@ export default function AmbientDataGrid() {
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
       ctx.clearRect(0, 0, width, height)
       ctx.lineWidth = 1
-      ctx.strokeStyle = '#ffffff'
+      ctx.strokeStyle = '#e2e5ea'
       ctx.globalAlpha = GRID_ALPHA
       ctx.beginPath()
       for (let x = 0; x <= width; x += SPACING) {

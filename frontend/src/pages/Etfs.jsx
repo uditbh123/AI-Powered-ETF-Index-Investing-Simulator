@@ -134,9 +134,9 @@ export default function Etfs() {
 
       {loading && (
         <div className="panel space-y-2 p-4">
-          <div className="h-4 w-1/3 bg-white/5" />
-          <div className="h-9 bg-white/5" />
-          <div className="h-9 bg-white/5" />
+          <div className="h-4 w-1/3 bg-base-hover" />
+          <div className="h-9 bg-base-hover" />
+          <div className="h-9 bg-base-hover" />
         </div>
       )}
 
@@ -170,7 +170,7 @@ export default function Etfs() {
         <div className="panel overflow-hidden">
           <div className="max-h-[calc(100vh-220px)] overflow-auto">
             <table className="w-full border-collapse">
-              <thead className="sticky top-0 z-10 bg-base text-left">
+              <thead className="sticky top-0 z-10 bg-white text-left">
                 <tr className="border-b border-edge">
                   {COLUMNS.map((column) => (
                     <th key={column.key} className="px-4 py-2">

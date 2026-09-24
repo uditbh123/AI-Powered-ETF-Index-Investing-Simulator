@@ -88,7 +88,7 @@ function FanTooltip({ active, payload }) {
     { label: '10th', value: point.low, tone: 'text-neg' },
   ]
   return (
-    <div className="border border-edge bg-base px-3 py-2">
+    <div className="border border-edge bg-white px-3 py-2 shadow-panel">
       <div className="text-xs text-ink-faint">
         Year {Math.floor(point.month / 12)} · month {point.month % 12}
       </div>
@@ -114,7 +114,7 @@ function CrisisFanTooltip({ active, payload }) {
     { label: 'actual', value: point.actual, tone: 'text-pos' },
   ]
   return (
-    <div className="border border-edge bg-base px-3 py-2">
+    <div className="border border-edge bg-white px-3 py-2 shadow-panel">
       <div className="text-xs text-ink-faint">Crisis month {point.month}</div>
       <div className="mt-1 space-y-0.5 font-mono text-xs tabular-nums">
         {rows.map(({ label, value, tone }) => (
@@ -132,7 +132,7 @@ function HistogramTooltip({ active, payload }) {
   if (!active || !payload?.length) return null
   const point = payload[0].payload
   return (
-    <div className="border border-edge bg-base px-3 py-2">
+    <div className="border border-edge bg-white px-3 py-2 shadow-panel">
       <div className="text-xs text-ink-faint">
         {formatCurrency(point.low)} – {formatCurrency(point.high)}
       </div>
@@ -150,7 +150,7 @@ function ToggleSwitch({ checked, onChange, title, subtitle }) {
       role="switch"
       aria-checked={checked}
       onClick={() => onChange(!checked)}
-      className="flex w-full items-center justify-between gap-3 border border-edge bg-white/5 px-2.5 py-2 text-left transition-colors hover:border-white/30"
+      className="flex w-full items-center justify-between gap-3 border border-edge bg-white px-2.5 py-2 text-left transition-colors hover:border-ink/25"
     >
       <span className="min-w-0">
         <span className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-widest text-ink-soft">
@@ -168,7 +168,7 @@ function ToggleSwitch({ checked, onChange, title, subtitle }) {
       <span
         className={[
           'relative h-4 w-8 shrink-0 border',
-          checked ? 'border-accent bg-accent/25' : 'border-white/20 bg-white/5',
+          checked ? 'border-accent bg-accent/15' : 'border-edge bg-base-hover',
         ].join(' ')}
       >
         <span
@@ -420,7 +420,9 @@ export default function Simulator() {
 
   function heatCellText(value) {
     if (value === null) return 'text-ink-dim'
-    return Math.abs(value) / 0.05 >= 0.6 ? 'text-black' : 'text-ink'
+    // Strong cells sit on a saturated pos/neg fill -> flip to white; weak
+    // cells keep ink text on the near-transparent tint.
+    return Math.abs(value) / 0.05 >= 0.55 ? 'text-white' : 'text-ink'
   }
 
   return (
@@ -510,7 +512,7 @@ export default function Simulator() {
                           </option>
                         ))}
                     </select>
-                    <div className="flex h-8 w-16 items-center gap-0.5 border border-edge bg-base-elevated px-1.5 focus-within:border-accent-dim">
+                    <div className="flex h-8 w-16 items-center gap-0.5 border border-edge bg-white px-1.5 focus-within:border-accent">
                       <input
                         type="number"
                         min="0"
@@ -598,7 +600,7 @@ export default function Simulator() {
               </div>
 
               {stats ? (
-                <div className="panel bg-base">
+                <div className="panel">
                   <div className="panel-title">
                     <span>Outcome insights</span>
                     <span className="font-mono text-xs normal-case text-ink-faint">
@@ -645,17 +647,17 @@ export default function Simulator() {
                             <CartesianGrid stroke="var(--chart-grid)" strokeDasharray="3 3" vertical={false} />
                             <XAxis
                               dataKey="label"
-                              tick={{ fill: 'var(--chart-axis)', fontSize: 10 }}
+                              tick={{ fill: 'var(--chart-axis)', fontSize: 12 }}
                               tickLine={false}
                               axisLine={{ stroke: 'var(--chart-grid)' }}
                               interval={Math.max(1, Math.floor(histogramData.length / 6))}
                             />
                             <YAxis tick={false} tickLine={false} axisLine={false} width={2} />
                             <Tooltip
-                              cursor={{ fill: 'rgba(255, 255, 255, 0.05)' }}
+                              cursor={{ fill: 'rgba(22, 24, 29, 0.06)' }}
                               content={<HistogramTooltip />}
                             />
-                            <Bar dataKey="count" fill="var(--chart-line)" fillOpacity={0.75} isAnimationActive={false} />
+                            <Bar dataKey="count" fill="var(--chart-line)" fillOpacity={0.85} isAnimationActive={false} />
                             {histogramBucketFor(stats.final_percentiles.p50) && (
                               <ReferenceLine
                                 x={histogramBucketFor(stats.final_percentiles.p50)}
@@ -666,7 +668,7 @@ export default function Simulator() {
                             {histogramBucketFor(stats.total_contributed) && (
                               <ReferenceLine
                                 x={histogramBucketFor(stats.total_contributed)}
-                                stroke="var(--ink-dim)"
+                                stroke="var(--chart-axis)"
                                 strokeDasharray="4 3"
                               />
                             )}
@@ -686,7 +688,7 @@ export default function Simulator() {
                 </div>
               )}
 
-              <div className="panel bg-base">
+              <div className="panel">
                 <div className="panel-title">
                   <span>Growth fan chart · 10th–90th percentile</span>
                   <span className="flex items-center gap-2 font-mono text-xs normal-case text-ink-faint">
@@ -712,13 +714,13 @@ export default function Simulator() {
                       <CartesianGrid stroke="var(--chart-grid)" strokeDasharray="3 3" vertical={false} />
                       <XAxis
                         dataKey="month"
-                        tick={{ fill: 'var(--chart-axis)', fontSize: 11 }}
+                        tick={{ fill: 'var(--chart-axis)', fontSize: 12 }}
                         tickLine={false}
                         axisLine={{ stroke: 'var(--chart-grid)' }}
                         tickFormatter={(m) => (m % 12 === 0 ? `${m / 12}y` : '')}
                       />
                       <YAxis
-                        tick={{ fill: 'var(--chart-axis)', fontSize: 11 }}
+                        tick={{ fill: 'var(--chart-axis)', fontSize: 12 }}
                         tickFormatter={(v) => `${Math.round(v / 1000)}k`}
                         tickLine={false}
                         axisLine={false}
@@ -726,7 +728,7 @@ export default function Simulator() {
                       />
                       <Tooltip
                         content={<FanTooltip />}
-                        cursor={{ stroke: 'rgba(255,255,255,0.25)', strokeDasharray: '3 3' }}
+                        cursor={{ stroke: 'color-mix(in srgb, var(--chart-line) 45%, transparent)', strokeDasharray: '3 3' }}
                       />
                       <Area
                         type="monotone"
@@ -751,12 +753,12 @@ export default function Simulator() {
                 </div>
               </div>
 
-              <div className="panel bg-base">
+              <div className="panel">
                 <div className="panel-title">
                   <span>Realized monthly returns</span>
                   <span className="flex items-center gap-2 font-mono text-xs normal-case text-ink-faint">
                     <span className="flex items-center gap-1.5">
-                      <span className="inline-block h-2.5 w-6" style={{ background: 'linear-gradient(90deg, var(--down), rgba(255, 255, 255, 0.05) 50%, var(--up))' }} />
+                      <span className="inline-block h-2.5 w-6" style={{ background: 'linear-gradient(90deg, var(--down), transparent 50%, var(--up))' }} />
                       loss → gain
                     </span>
                   </span>
@@ -785,7 +787,7 @@ export default function Simulator() {
                               <span
                                 key={month}
                                 title={`${year}-${String(month + 1).padStart(2, '0')} · ${value === null ? 'no data' : formatReturn(value)}`}
-                                className={`flex-1 rounded-none border ${value === null ? 'border-base bg-base' : 'border-transparent'} px-0 py-1 text-right font-mono text-xs tabular-nums ${value === null ? '' : heatCellText(value)}`}
+                                className={`flex-1 rounded-none border ${value === null ? 'border-edge-subtle bg-white' : 'border-transparent'} px-0 py-1 text-right font-mono text-xs tabular-nums ${value === null ? '' : heatCellText(value)}`}
                                 style={heatCellStyle(value)}
                               >
                                 {value === null ? '·' : formatReturn(value)}
@@ -887,13 +889,13 @@ export default function Simulator() {
                             />
                             <XAxis
                               dataKey="month"
-                              tick={{ fill: 'var(--chart-axis)', fontSize: 11 }}
+                              tick={{ fill: 'var(--chart-axis)', fontSize: 12 }}
                               tickLine={false}
                               axisLine={{ stroke: 'var(--chart-grid)' }}
                               tickFormatter={(m) => `${m}m`}
                             />
                             <YAxis
-                              tick={{ fill: 'var(--chart-axis)', fontSize: 11 }}
+                              tick={{ fill: 'var(--chart-axis)', fontSize: 12 }}
                               tickFormatter={(v) => `${Math.round(v / 1000)}k`}
                               tickLine={false}
                               axisLine={false}
@@ -902,7 +904,7 @@ export default function Simulator() {
                             <Tooltip
                               content={<CrisisFanTooltip />}
                               cursor={{
-                                stroke: 'rgba(255,255,255,0.25)',
+                                stroke: 'color-mix(in srgb, var(--chart-line) 45%, transparent)',
                                 strokeDasharray: '3 3',
                               }}
                             />
