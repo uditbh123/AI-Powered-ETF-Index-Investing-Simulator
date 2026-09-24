@@ -35,6 +35,17 @@ def get_portfolio(conn: sqlite3.Connection, portfolio_id: int) -> sqlite3.Row | 
     ).fetchone()
 
 
+def get_portfolio_by_user_and_name(
+    conn: sqlite3.Connection, user_id: int, name: str
+) -> sqlite3.Row | None:
+    """Look up a portfolio by owner + name (used for idempotent seeding)."""
+    return conn.execute(
+        "SELECT id, user_id, name, monthly_contribution, start_date "
+        "FROM portfolios WHERE user_id = ? AND name = ?",
+        (user_id, name),
+    ).fetchone()
+
+
 def list_portfolios(conn: sqlite3.Connection) -> list[sqlite3.Row]:
     return conn.execute(
         "SELECT id, user_id, name, monthly_contribution, start_date "
@@ -103,6 +114,7 @@ __all__ = [
     "get_or_create_user",
     "create_portfolio",
     "get_portfolio",
+    "get_portfolio_by_user_and_name",
     "list_portfolios",
     "add_holding",
     "list_holdings",
