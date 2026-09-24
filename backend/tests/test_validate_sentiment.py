@@ -10,6 +10,8 @@ import numpy as np
 import pandas as pd
 import pytest
 
+scipy = pytest.importorskip("scipy")  # ingest-only dep, absent in the runtime venv
+
 from app.dao import news as news_dao
 from app.dao import prices as price_dao
 from app.dao import tickers as ticker_dao

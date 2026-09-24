@@ -1,0 +1,24 @@
+# VCS / docs / local cruft
+.git
+docs/
+screenshots/
+tree.txt
+project-tree.txt
+
+# Python
+.venv/
+.venv-runtime/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# Node
+**/node_modules/
+frontend/dist/
+npm-debug.log*
+
+# Runtime data (deploy.db IS shipped as the frozen snapshot)
+backend/simulator.db*
+backend/*.db-wal
+backend/*.db-shm
+*.log

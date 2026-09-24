@@ -7,6 +7,8 @@ adjustment basis to a new one and fabricate jumps at the boundary.
 """
 from app.scheduler import _scheduled_refresh, create_scheduler
 
+import pytest
+
 
 def test_scheduled_refresh_uses_full_history(monkeypatch):
     captured = {}
@@ -26,6 +28,7 @@ def test_scheduled_refresh_uses_full_history(monkeypatch):
 
 
 def test_create_scheduler_registers_daily_job(monkeypatch):
+    pytest.importorskip("apscheduler")  # ingest-only dep, absent in the runtime venv
     calls = {}
 
     class FakeScheduler:

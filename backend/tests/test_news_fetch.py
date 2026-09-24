@@ -3,6 +3,10 @@ from __future__ import annotations
 
 import time
 
+import pytest
+
+feedparser = pytest.importorskip("feedparser")  # ingest-only dep, absent in the runtime venv
+
 from app.data.news_sources import (
     google_news_rss,
     sector_sources,

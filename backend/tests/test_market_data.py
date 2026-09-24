@@ -51,7 +51,7 @@ def fake_fetcher(frames: dict[str, pd.DataFrame]):
 # ---------------------------------------------------------------------------
 
 def test_fetch_history_requests_full_history_when_no_bounds(monkeypatch):
-    import yfinance as yf
+    yf = pytest.importorskip("yfinance")
 
     captured = {}
 
@@ -74,7 +74,7 @@ def test_fetch_history_end_without_start_never_passes_period(monkeypatch):
     with end= would silently drop the end bound. We pin start to a sentinel
     instead and pass no period.
     """
-    import yfinance as yf
+    yf = pytest.importorskip("yfinance")
 
     captured = {}
 
@@ -90,7 +90,7 @@ def test_fetch_history_end_without_start_never_passes_period(monkeypatch):
 
 
 def test_fetch_history_forwards_explicit_start(monkeypatch):
-    import yfinance as yf
+    yf = pytest.importorskip("yfinance")
 
     captured = {}
 

@@ -4,7 +4,8 @@ from __future__ import annotations
 import types
 
 import pytest
-import torch
+
+torch = pytest.importorskip("torch")  # skip whole module when torch is absent
 
 from app.services import sentiment
 

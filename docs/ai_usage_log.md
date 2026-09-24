@@ -334,3 +334,61 @@ evidence from the test suite is included.
   `docs/screenshots/round4/` (desktop + mobile, incl. tall result-area shots).
 - **Test evidence:** frontend lint+build clean; backend suite `168 passed`.
   Commit `e2cdb75`.
+
+## Stage K -- Demo seeding + deployable single container
+- **Found by:** implementation task (Stage K of `docs/PROJECT.md`).
+- **What changed (K1, commit `cd86d2e`):** a Demo User seeding CLI. New DAO
+  `get_portfolio_by_user_and_name`; `backend/app/scripts/seed_demo.py` creates
+  three portfolios on first run (idempotent, keyed by user+name): "All-World
+  Growth" (VXUS 100%, $200/mo), "Balanced 60/40" (VTI 60 / BND 40, $100/mo,
+  with a lowest-volatility catalog fallback when a bond-like ticker is
+  unavailable, `exclude={VTI}`), and "Tech Tilt" (QQQ 70 / VXUS 30, $200/mo).
+  Run with `python -m app.scripts.seed_demo`.
+- **What changed (K2):**
+  - Split requirements: `requirements.txt` is now runtime-only (fastapi,
+    uvicorn[standard], pydantic, pydantic-settings, python-dotenv, numpy,
+    pandas); `requirements-ingest.txt` adds yfinance/APScheduler/feedparser/
+    scipy/torch/transformers; `requirements-dev.txt` adds pytest/httpx.
+    Verified the API boots and the whole suite runs in a fresh venv with only
+    `requirements.txt` + `requirements-dev.txt`.
+  - Skip-guards: tests that import ingest-only deps now `pytest.importorskip`
+    (`test_sentiment` torch; `test_market_data` yfinance x3;
+    `test_news_fetch` + `test_sentiment_ingest` feedparser;
+    `test_validate_sentiment` scipy; `test_scheduler` apscheduler x1). Runtime
+    venv: 149 passed / 8 skipped; full venv: 181 passed.
+  - Scheduler gating (verify-then-fix: `ENABLE_SCHEDULER` + lifespan gate
+    already existed in `app/main.py`) validated with
+    `tests/test_scheduler_gating.py` covering both states via monkeypatched
+    `app.main.create_scheduler` / `shutdown_scheduler`.
+  - Static SPA serving (`app/main.py::_frontend_dist` + `spa_fallback`): when
+    `frontend/dist` (or `FRONTEND_DIST`) exists, `/` returns `index.html`,
+    hashed assets are served from disk, unknown paths fall back to
+    `index.html`, and all API routes are untouched (registered first). With no
+    dist, the JSON root and FastAPI 404s are unchanged. `tests/test_static_serving.py`.
+  - Frontend same-origin fix: `frontend/src/api.js` now uses
+    `(VITE_API_BASE_URL ?? '/api').replace(/\/+$/, '')` so the container build
+    (`VITE_API_BASE_URL=/`) yields root-path API calls without double slashes.
+  - `Dockerfile` (node:20-alpine build stage -> python:3.13-slim runtime, only
+    `requirements.txt` installed, `ENABLE_SCHEDULER=0`, `FRONTEND_DIST`,
+    `HEALTHCHECK` on `/health`) + root `.dockerignore`
+    (simulator.db\* excluded, deploy.db shipped).
+  - `backend/scripts/prepare_deploy_db.py` folds the dev WAL
+    (`PRAGMA wal_checkpoint(TRUNCATE)` + `ANALYZE`) and copies
+    `simulator.db` -> `deploy.db` (frozen snapshot, 8.6 MB, 13 tickers /
+    106,251 prices / 23 runs).
+  - New `docs/deployment.md`, root `AGENTS.md`, README dependency-table +
+    deployment sections.
+- **Test evidence:** backend suite `181 passed` (dev venv); runtime-only venv
+  `149 passed, 8 skipped`; `npm run lint` + `npm run build` clean; local
+  `docker build -t etf-simulator` succeeded (447 MB) and the container ran:
+  `/health` ok, `/tickers` 200 JSON, `/screener` 200 JSON, `/` 200 - served
+  `index.html` (title "ETF Simulator ..."), `/simulator` fell back to
+  `index.html`, and a full create-portfolio + simulate (seed 42, n=100)
+  returned a cached `run_id` with `p50=58,470.57` / `p90=90,021.52` /
+  `probability_of_profit=0.99`.
+- **Files changed:** `backend/requirements.txt`, `requirements-ingest.txt`,
+  `requirements-dev.txt`, `app/config.py`, `app/main.py`,
+  `scripts/prepare_deploy_db.py`, tests (6 guarded modules + 2 new files),
+  `frontend/src/api.js`, `Dockerfile`, `.dockerignore`, `AGENTS.md`, `README.md`,
+  `docs/deployment.md`.
+- **Commits:** `cd86d2e` (K1); K2 pending (this stage).

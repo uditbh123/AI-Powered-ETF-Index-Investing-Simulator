@@ -31,9 +31,22 @@ docs/      Sentiment-signal validation findings and the AI usage log
 cd backend
 python -m venv .venv
 .venv\Scripts\activate            # PowerShell on Windows
-pip install -r requirements.txt
+pip install -r requirements.txt  # runtime-only deps (no torch / yfinance)
 copy .env.example .env            # fill in API keys when you add them
 ```
+
+Three dependency sets are kept separate:
+
+| File | Contents | Used for |
+|---|---|---|
+| `requirements.txt` | API + simulation runtime (FastAPI, uvicorn, numpy, pandas, ...) | Running the server; the Docker image installs only this |
+| `requirements-ingest.txt` | runtime + yfinance, APScheduler, feedparser, scipy, torch, transformers | Local data ingestion + FinBERT sentiment scoring |
+| `requirements-dev.txt` | runtime + pytest, httpx | Running the backend test suite |
+
+The live API never imports the ingest stack (torch/transformers are imported
+lazily), so the deployed server boots without them. Tests that exercise
+ingest-only modules skip themselves automatically when those packages are
+absent (`pytest.importorskip`).
 
 Run the API server (defaults to http://127.0.0.1:8000):
 
@@ -84,6 +97,12 @@ dev server exposes these via the `/api` prefix (e.g. `/api/tickers`).
 | POST | `/portfolios/{id}/simulate` | Run a Monte Carlo simulation; params: `initial_balance`, `horizon_months`, `n_simulations`, optional `seed`/`blocks`, optional `use_sentiment` |
 | GET | `/simulation-runs/{id}` | Fetch a cached run's results |
 
+When a built SPA (`frontend/dist`, or the `FRONTEND_DIST` env override) is
+present, the same server also serves the frontend at `/` with a client-side
+fallback (unknown paths return `index.html`). All API routes are registered
+before the fallback, so JSON endpoints are unaffected. This is what the Docker
+deployment leverages (see [docs/deployment.md](docs/deployment.md)).
+
 `POST .../simulate` caches identical parameter sets in SQLite
 (`simulation_runs`/`simulation_results`), so repeated page loads don't
 recompute. Re-running with identical params returns `"cached": true` and the
@@ -120,7 +139,7 @@ against analytically solvable baselines (including the start-of-period
 contribution-timing closed form, volatility drag, and bootstrap matching) plus
 schema/database-connection integrity checks. The DAO and ingestion layers
 (Phase 1) are tested against a temp SQLite file with mocked fetch output, so
-tests never touch the network. The current suite is 100+ tests run from
+tests never touch the network. The current suite is 181 tests run from
 `backend/`:
 
 ```bash
@@ -160,6 +179,12 @@ mobile widths live in `docs/screenshots/before/` and `docs/screenshots/after/`.
 ![ETF screener — sortable screening stats from stored price history](docs/screenshots/after/desktop_Etfs.png)
 
 ![Monte Carlo simulator — growth fan chart with crisis replay](docs/screenshots/after/desktop_Simulator.png)
+
+## Deployment
+
+See [docs/deployment.md](docs/deployment.md) for the single-container Docker
+build (`etf-simulator`), the frozen-data snapshot procedure, environment
+variables, and manual Fly.io / Railway deployment steps.
 
 ## Environment files
 

@@ -1,4 +1,8 @@
 """End-to-end tests for the sentiment ingest pipeline (mocked fetch + scorer)."""
+import pytest
+
+feedparser = pytest.importorskip("feedparser")  # ingest-only dep, absent in the runtime venv
+
 from app.dao import news as news_dao
 from app.dao import tickers as ticker_dao
 from app.scripts.sentiment_ingest import run_pipeline, select_sources

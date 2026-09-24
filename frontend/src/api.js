@@ -1,4 +1,7 @@
-const API_BASE = import.meta.env.VITE_API_BASE_URL || '/api'
+// Build-time override: the dev Vite proxy serves the API under /api; the
+// container build sets VITE_API_BASE_URL=/ so the SPA and API share an origin
+// (trailing slashes are trimmed so '/' + '/tickers' never double-slashes).
+const API_BASE = (import.meta.env.VITE_API_BASE_URL ?? '/api').replace(/\/+$/, '')
 
 export async function fetchJSON(path, options = {}) {
   const response = await fetch(`${API_BASE}${path}`, {

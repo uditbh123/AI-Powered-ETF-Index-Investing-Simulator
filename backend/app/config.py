@@ -17,6 +17,11 @@ class Settings(BaseSettings):
     market_data_api_key: str = ""
     news_api_key: str = ""
 
+    # Built SPA directory. When present (set or the default frontend/dist
+    # exists), the API additionally serves the SPA at "/" with a client-side
+    # fallback; otherwise the API keeps its JSON root. None disables serving.
+    frontend_dist: str | None = None
+
     # --- sentiment pipeline (Phase 5) ------------------------------------
     sentiment_model: str = "ProsusAI/finbert"
     sentiment_batch_size: int = 8
