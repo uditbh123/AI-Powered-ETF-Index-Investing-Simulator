@@ -181,6 +181,9 @@ dark-theme history is preserved under `docs/screenshots/before|after/`.
 
 ![Monte Carlo simulator — growth fan chart with crisis replay](docs/screenshots/light-theme/desktop/desktop_Simulator.png)
 
+Focused keyboard states of every form control (selects, inputs, ranges,
+toggles, sort buttons) are captured in `docs/screenshots/light-theme/controls/`.
+
 ## Deployment
 
 See [docs/deployment.md](docs/deployment.md) for the single-container Docker

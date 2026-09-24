@@ -512,7 +512,7 @@ export default function Simulator() {
                           </option>
                         ))}
                     </select>
-                    <div className="flex h-8 w-16 items-center gap-0.5 border border-edge bg-white px-1.5 focus-within:border-accent">
+                    <div className="flex h-8 w-16 items-center gap-0.5 border border-edge bg-white px-1.5 focus-within:border-accent focus-within:ring-2 focus-within:ring-accent/25">
                       <input
                         type="number"
                         min="0"

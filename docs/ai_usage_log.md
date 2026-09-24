@@ -440,3 +440,50 @@ evidence from the test suite is included.
   `frontend/src/pages/Home.jsx`, `frontend/src/pages/Simulator.jsx`,
   `frontend/src/pages/Etfs.jsx`, `frontend/src/pages/FinancialNews.jsx`,
   `README.md`, `docs/screenshots/light-theme/*`, `docs/ai_usage_log.md`.
+
+## Stage L1 -- Form-control styling + keyboard-focus audit
+- **Found by:** implementation task (Stage L1: consistent token-driven form
+  controls with visible range thumb/track, keyboard operability, visible
+  focus).
+- **What changed:**
+  - The control layer already shipped with the L3 retheme: `.input` /
+    `.select` / `.select-native` (white surface, edge border, 2px `accent/25`
+    focus ring), `.btn` / `.btn-primary` / `.btn-danger-ghost` (accent/neg
+    `focus-visible` rings), `.slider` (16px accent thumb, 4px edge track on
+    WebKit + Gecko, accent focus ring), and a global `button/a/[role=switch]:focus-visible`
+    accent outline for bare controls. L1 verified every control adopts one of
+    these, so one change covered the audit.
+  - One gap fixed: the Simulator holding-weight number input's focus was only a
+    1px border shift; added the same `focus-within:ring-2 ring-accent/25`
+    accent ring used elsewhere.
+- **Per-page checklist** (control | token-styled | keyboard OK | visible
+  focus):
+  - Home: instrument select (.select, arrows OK) / watchlist search (.input)
+    / range pills (bare button, global focus outline) — all pass.
+  - Etfs: sort header buttons (bare, global outline; Arrow/Enter activate) /
+    Refresh (.btn) — pass.
+  - FinancialNews: category toggle + day-toggle pills (bare, global outline) /
+    empty-state buttons (.btn) — pass.
+  - Simulator: portfolio name (.input) / 3 range sliders (.slider, 16px accent
+    thumb, arrow keys adjust) / holding select (.select) / weight number
+    input (accent border + ring) / remove/add/run (.btn/.btn-primary/
+    .btn-danger-ghost) / AI-sentiment ToggleSwitch (`role=switch`, Space
+    toggles, global switch focus outline) / crisis select (.select) / Replay
+    (.btn-primary) — pass.
+  - No `<input type=checkbox>` or radio controls exist in the app.
+- **Verification:** `npm run lint` + `npm run build` clean (backend untouched).
+  Focused states captured via Chrome DevTools Protocol (headless) for each
+  control type: `docs/screenshots/light-theme/controls/`
+  (`controls_Home_select_focus`, `controls_Home_search_focus`,
+  `controls_Etfs_sort_focus`, `controls_News_daytoggle_focus`,
+  `controls_Simulator_slider_focus`, `controls_Simulator_switch_focus`,
+  `controls_Simulator_weight_focus`, `controls_Simulator_name_focus`); accent
+  focus pixels confirmed present on the full-resolution captures. README
+  Screenshots section now links the controls set.
+- **Note:** the `/news` single-origin route collision (API GET /news vs SPA
+  /news) was hit again while capturing the News focus shot on the built SPA;
+  workaround for screenshots was client-side navigation from `/`. Still
+  tracked for a future stage.
+- **Files changed:** `frontend/src/pages/Simulator.jsx` (weight-input focus
+  ring), `README.md`, `docs/screenshots/light-theme/controls/*`,
+  `docs/ai_usage_log.md`.
