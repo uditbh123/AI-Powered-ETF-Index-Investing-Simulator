@@ -391,4 +391,4 @@ evidence from the test suite is included.
   `scripts/prepare_deploy_db.py`, tests (6 guarded modules + 2 new files),
   `frontend/src/api.js`, `Dockerfile`, `.dockerignore`, `AGENTS.md`, `README.md`,
   `docs/deployment.md`.
-- **Commits:** `cd86d2e` (K1); K2 pending (this stage).
+- **Commits:** `cd86d2e` (K1); `5b5fa81` (K2).
