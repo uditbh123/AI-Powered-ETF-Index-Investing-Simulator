@@ -19,11 +19,16 @@ from datetime import date, datetime
 from typing import Any, TypedDict
 from urllib.parse import urlparse
 
-import feedparser
-import httpx
-
 from ..config import settings
 from ..data.news_sources import NewsSource
+
+# feedparser and httpx are imported inside the functions that use them, not
+# here. Neither is in requirements.txt: feedparser is ingest-only and httpx is
+# dev-only, so a module-level import would make this file unimportable in the
+# deployed container. That is currently latent (only the sentiment_ingest CLI
+# imports this module) but the docstring above anticipates wiring the fetch
+# layer into the scheduler, which would turn it into a boot-time crash.
+# Enforced by tests/test_import_hygiene.py.
 
 log = logging.getLogger(__name__)
 
@@ -92,6 +97,8 @@ def _normalize_entry(
 
 def fetch_feed_xml(url: str) -> str | None:
     """Download raw feed content (None on any network/HTTP failure)."""
+    import httpx
+
     try:
         response = httpx.get(
             url,
@@ -108,6 +115,8 @@ def fetch_feed_xml(url: str) -> str | None:
 
 def parse_feed_xml(xml: str) -> list[Any]:
     """Parse raw RSS/Atom XML into feedparser entries."""
+    import feedparser
+
     parsed = feedparser.parse(xml)
     return list(parsed.entries)
 

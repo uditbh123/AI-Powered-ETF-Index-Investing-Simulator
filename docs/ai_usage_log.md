@@ -614,11 +614,11 @@ evidence from the test suite is included.
   - `test_seeded_weights_are_fractions_in_the_unit_interval` round-trips seeded
     weights through `PortfolioCreate`, so demo data that the API would reject
     fails the suite.
-- **Note (not changed here):** `openapi.json` at the repo root is a stale
+- **Note (not changed here):** `openapi.json` at the repo root was a stale
   checked-in dump (9 paths; missing `/news`, `/screener`, `/crisis-replay`,
-  `/monthly-returns`, PATCH, DELETE) and still shows the old `weight`
-  description. Regenerating it is left for a separate task, so it is not
-  updated here.
+  `/monthly-returns`, PATCH, DELETE) and still showed the old `weight`
+  description. Left untouched at this stage; Stage M deletes it and points the
+  README at the live `/docs` endpoint instead.
 - **Test evidence:** backend suite `245 → 257 passed` (0 failures, 0 skipped,
   37s) via `--junitxml`; `npm run lint` clean; `npm run build` clean
   (`VITE_API_BASE_URL=/`).
@@ -628,3 +628,69 @@ evidence from the test suite is included.
   `backend/tests/test_insights_api.py`, `frontend/src/api.js`,
   `frontend/src/pages/Simulator.jsx`, `frontend/src/pages/Portfolios.jsx`,
   `README.md`, `AGENTS.md`, `docs/ai_usage_log.md`.
+
+## Stage M -- Hygiene: import guard, stale artifact, known issues
+- **Found by:** implementation task (freeze-prep hygiene pass).
+- **M1 -- import hygiene test.** New `backend/tests/test_import_hygiene.py`
+  parses every `.py` under `backend/app/` (excluding `app/scripts/` and
+  `__pycache__`) with `ast` and fails on any *module-level* import of
+  `{yfinance, torch, transformers, apscheduler, feedparser, sentencepiece,
+  huggingface_hub}`. It walks only `tree.body`, so an import inside a function
+  body -- the lazy pattern the whole repo already uses -- is allowed by
+  construction rather than by an exemption list. Three supporting tests: a
+  vacuous-pass guard (asserts the scanner found >=30 files and the expected
+  modules, so a wrong path cannot make the check silently pass), a pinned
+  regression test for `app/scheduler.py` alone, and a test asserting the
+  `app/scripts/` exclusion is load-bearing (`scripts/validate_sentiment.py`
+  imports scipy at module level, which is also ingest-only but is not on the
+  banned list).
+- **Caught regression (not the predicted one).** The task anticipated
+  `app/scheduler.py` failing. It does not: `apscheduler` was already imported
+  inside `create_scheduler()` at `scheduler.py:49`. The violation was elsewhere
+  -- **`app/services/news_fetch.py` had a module-level `import feedparser`**
+  (line 22) plus a module-level `import httpx` (line 23, also absent from
+  `requirements.txt`, being dev-only). Both moved into their single call sites
+  (`parse_feed_xml`, `fetch_feed_xml`); the file now carries a comment
+  explaining why. This was *latent*, not an active crash: the only importer was
+  `app/scripts/sentiment_ingest.py`, an operator CLI. It was one wiring change
+  away from being live -- the module docstring explicitly anticipated being
+  "wired into the scheduler", which would have made the container fail at boot
+  with `ModuleNotFoundError` for a package the image never installs.
+  `tests/test_news_fetch.py` (10) and `tests/test_sentiment_ingest.py` (6) still
+  pass, so the refactor is behaviorally inert.
+- **Negative control:** a hygiene test that has never failed proves nothing, so
+  `import torch` was temporarily injected into `app/services/screener.py` and
+  the suite confirmed the guard fires with
+  `app/services/screener.py:1 imports 'torch' at module level`, then the
+  injection was reverted (confirmed clean via `git status`).
+- **M2 -- stale artifact removed.** `git rm openapi.json` (repo root, 8,214
+  bytes, last touched in `a0de804`). It postdated Stages A-D/L2, listed 9 paths
+  against the live app's 14, and still documented the pre-Stage-W percent-scale
+  `weight`, so it was actively misleading. The live schema is served by FastAPI
+  on any running instance, so the README now says exactly that instead. Nothing
+  in the build or the tracked source referenced the file (only this log did, and
+  the note above now points forward to Stage M).
+- **M3 -- `docs/known_issues.md`.** Two accepted-limitation entries, each
+  written against verified code rather than assumption: (1) no auth -- confirmed
+  by `deps.py` exposing only `get_db`, `list_portfolios` having no owner filter
+  (`dao/portfolios.py:49`), the `get_or_create_user` docstring
+  (`dao/portfolios.py:7`), routers registered with no auth dependency
+  (`main.py:46`), and no CORS middleware anywhere; (2) the runtime/ingest split
+  being convention-only. Entry 1 also records what *is* enforced (the Stage L4
+  resource bounds) and is explicit that bounding is not authorization, and
+  notes that CORS is a browser control that does nothing to stop a direct
+  client. Entry 2 records the three blind spots the AST scan deliberately
+  leaves: imports nested in a top-level `if TYPE_CHECKING:` / `try:`, a
+  name-literal banned set, and name-based detection. A `## Open items` section
+  is present and intentionally empty for post-freeze findings.
+- **Also updated:** `AGENTS.md` dependency section replaced its unfilled `:L`
+  placeholders with a table of the five verified lazy-import sites, and now
+  points at both the new test and `docs/known_issues.md`; README `docs/`
+  layout line now mentions the architecture diagram, known issues, and usage log.
+- **Test evidence:** backend suite `257 -> 261 passed` (0 failures, 0 skipped)
+  via `--junitxml`; the 4 new tests are pure-`ast` and need no ingest packages,
+  so they run on a runtime-only venv.
+- **Files changed:** `backend/tests/test_import_hygiene.py` (new),
+  `backend/app/services/news_fetch.py`, `openapi.json` (deleted),
+  `docs/known_issues.md` (new), `README.md`, `AGENTS.md`,
+  `docs/ai_usage_log.md`.

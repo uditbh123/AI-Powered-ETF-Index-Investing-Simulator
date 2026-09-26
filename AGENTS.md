@@ -15,7 +15,7 @@ changes into a commit.
 ## Commands
 
 - Backend suite: from `backend/` run `python -m pytest` (dev venv `.venv`, or
-  install `requirements-dev.txt`). Expected: 257 passing.
+  install `requirements-dev.txt`). Expected: 261 passing.
 - Lint/typecheck: frontend `npm run lint` (oxlint) — backend has no linter.
 - Frontend build: `npm run build`.
 - Ingest CLI: `backend` → `python -m app.scripts.ingest` (dev only).
@@ -30,14 +30,30 @@ Three requirement files exist in `backend/`:
   torch, transformers for local ingestion/sentiment.
 - `requirements-dev.txt` — adds pytest, httpx for the test suite.
 
-The live API NEVER imports the ingest stack at boot: `torch`/`transformers`
-are lazy in `app/services/sentiment.py:L` and `yfinance` in
-`app/services/market_data.py:L`. Keep it that way — the deployed container has
-no torch. Do not add an ingest dependency to `app/` boot-path imports.
+The live API NEVER imports the ingest stack at boot. The heavy dependencies are
+imported inside the function that uses them:
+
+| Package | Lazy import site |
+|---|---|
+| `torch`, `transformers` | `app/services/sentiment.py:35,47,74,99` |
+| `yfinance` | `app/services/market_data.py:43` |
+| `apscheduler` | `app/scheduler.py:49` (inside `create_scheduler`) |
+| `feedparser`, `httpx` | `app/services/news_fetch.py:118,100` |
+
+Keep it that way — the deployed container installs `requirements.txt` only, so a
+top-level import of any of these is a boot-time `ModuleNotFoundError` in
+production that the dev venv cannot reproduce. `tests/test_import_hygiene.py`
+enforces this by failing on any module-level import of an ingest-only package
+under `app/` (excluding `app/scripts/`); when you add a dependency, import it
+inside the function that needs it, and if it is a new ingest-only package, add
+its name to `INGEST_ONLY` in that test.
 
 `app/scripts/` (ingest, sentiment_ingest, validate_sentiment, seed_demo) and
 any test that imports them are allowed to use ingest deps; tests that do must
 guard with `pytest.importorskip(...)` so they skip on a runtime-only venv.
+
+See `docs/known_issues.md` for the two accepted limitations (no auth; this
+import split) and for the blind spots the hygiene test deliberately leaves.
 
 ## Tests
 

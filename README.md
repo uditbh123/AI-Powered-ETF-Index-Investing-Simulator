@@ -17,7 +17,7 @@ for the sentiment-signal validation results, and
 ```
 backend/   FastAPI application, SQLite schema, DAO layer (Phases 0-3, 5-7)
 frontend/  React (Vite) single-page app, routing, disclaimer banner (Phases 0, 4, 6, 8)
-docs/      Sentiment-signal validation findings and the AI usage log
+docs/      Architecture diagram, sentiment validation, known issues, AI usage log
 ```
 
 ## Prerequisites
@@ -85,8 +85,9 @@ duplicates. The API server also seeds the catalog on startup and (when
 
 ## Backend API (Phase 3)
 
-Interactive docs at http://127.0.0.1:8000/docs. From the browser the Vite
-dev server exposes these via the `/api` prefix (e.g. `/api/tickers`).
+Interactive API docs are served at `/docs` on any running instance
+(http://127.0.0.1:8000/docs locally). From the browser the Vite dev server
+exposes the API via the `/api` prefix (e.g. `/api/tickers`).
 
 | Method | Path | Purpose |
 |---|---|---|
