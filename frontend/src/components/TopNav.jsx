@@ -12,10 +12,10 @@ const NAV_LINKS = [
 
 function linkClass(isActive) {
   return [
-    'flex h-full shrink-0 items-center border-b-2 px-3 text-sm font-medium transition-colors',
+    'flex h-full shrink-0 items-center border-b-2 px-3 text-sm transition-colors',
     isActive
-      ? 'border-accent text-accent'
-      : 'border-transparent text-ink-soft hover:text-ink',
+      ? 'border-ink font-semibold text-ink'
+      : 'border-transparent text-ink-faint hover:text-ink',
   ].join(' ')
 }
 
@@ -29,7 +29,7 @@ export default function TopNav() {
           className="flex shrink-0 items-center gap-2.5"
           aria-label="ETF Simulator home"
         >
-          <span className="flex h-7 w-7 items-center justify-center border border-accent/40 bg-accent/10 text-accent">
+          <span className="flex h-7 w-7 items-center justify-center border border-ink bg-ink text-white">
             <ChartCandlestick size={15} strokeWidth={2} />
           </span>
           <span className="flex flex-col">

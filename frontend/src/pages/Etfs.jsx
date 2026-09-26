@@ -43,7 +43,7 @@ function cellClass(column) {
   const columns = ['px-4 py-2', 'text-sm']
   columns.push(column.align === 'right' ? 'text-right' : 'text-left')
   if (column.kind === 'symbol') columns.push('font-mono font-semibold text-accent')
-  if (column.kind === 'pct' || column.kind === 'price') columns.push('font-mono tabular-nums')
+  if (column.kind === 'pct' || column.kind === 'price') columns.push('num')
   return columns.join(' ')
 }
 

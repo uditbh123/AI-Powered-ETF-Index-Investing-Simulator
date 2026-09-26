@@ -3,11 +3,23 @@
 @tailwind utilities;
 
 /* Shared visual tokens (recharts + any runtime styling). Values source only
- from tailwind.config.js via theme(); no hex literals outside the config. */
+  from tailwind.config.js via theme(); no hex literals outside the config. */
 :root {
-  --chart-grid: theme('colors.edge.DEFAULT'); /* #E2E5EA grid lines */
-  --chart-axis: theme('colors.ink.soft'); /* #5A6270 secondary tick text */
-  --chart-line: theme('colors.accent.DEFAULT'); /* #0B5FFF */
+  /* Font stacks live here so that CSS utilities, Recharts axis ticks and
+     runtime styles all resolve the same faces. tailwind.config.js points
+     fontFamily.sans/mono at these two vars, so the stack is declared once. */
+  --font-sans: 'Archivo', ui-sans-serif, system-ui, -apple-system, 'Segoe UI',
+    Roboto, sans-serif;
+  --font-mono: 'IBM Plex Mono', ui-monospace, 'SFMono-Regular', Menlo, Consolas,
+    'Liberation Mono', monospace;
+
+  --chart-grid: theme('colors.edge.DEFAULT'); /* #E2E5EA hairline grid */
+  --chart-axis: theme('colors.ink.faint'); /* #8A919E tick text, recessive */
+  --chart-surface: theme('colors.base.panel'); /* #FFFFFF active-dot ring */
+  /* The series is ink, not a brand hue: colour in this UI is reserved for the
+     sign of a percentage change, so the chart line must not introduce a
+     third meaning. Direction is read from the header's pct, not the line. */
+  --chart-line: theme('colors.ink.DEFAULT'); /* #16181D */
   --up: theme('colors.pos.DEFAULT'); /* #0E7C3A */
   --down: theme('colors.neg.DEFAULT'); /* #C62828 */
   color-scheme: light;
@@ -20,10 +32,20 @@ body {
 
 body {
   @apply bg-base font-sans text-ink antialiased;
-  font-variant-numeric: tabular-nums;
 }
 
-/* Tabular numerals everywhere: values align in columns even without mono. */
+/* Square geometry on every control, overriding UA/native rounding so inputs,
+   selects and buttons match the hairline language. */
+input,
+select,
+button,
+textarea {
+  border-radius: 0;
+}
+
+/* Tabular figures everywhere. This is a safety net: the `.num` faces below are
+   already fixed-width monospace, so columns align even if tnum is unsupported.
+   Numeric display type must use `.num`, never a bare number in the UI face. */
 @layer base {
   input,
   select,
@@ -34,33 +56,56 @@ body {
 }
 
 ::selection {
-  @apply bg-accent text-white;
+  @apply bg-ink text-white;
 }
 
-/* Slim scrollbars, ink-tinted for light surfaces */
+/* Slim square scrollbars, ink-tinted for light surfaces */
 * {
   scrollbar-width: thin;
-  scrollbar-color: rgba(22, 24, 29, 0.25) transparent;
+  scrollbar-color: rgba(22, 24, 29, 0.28) transparent;
 }
 
 *::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
+  width: 6px;
+  height: 6px;
 }
 
 *::-webkit-scrollbar-thumb {
-  background: rgba(22, 24, 29, 0.25);
-  border-radius: 9999px;
+  background: rgba(22, 24, 29, 0.28);
+  border-radius: 0;
 }
 
+/* Thumb sits flush on the track edge; the 1px border reads as a hairline
+   rather than a floating pill. */
 *::-webkit-scrollbar-track {
   background: transparent;
 }
 
+
 @layer components {
-  /* Light surface card: white panel, 1px border, single soft elevation */
+  /* THE numeric display type. Every price, change, percentage and count must
+     use this class rather than a hand-rolled `font-mono ... tabular-nums`
+     pair, so figure alignment is defined in exactly one place. IBM Plex Mono
+     is fixed-advance, so figures align by metric; `tabular-nums` is kept as a
+     belt-and-braces hint.
+
+     `.num` is deliberately alignment-neutral: it only guarantees the typeface
+     and figure width. Alignment stays an explicit concern so that adopting
+     this class can never silently re-align an existing cell. Use `.num-r`
+     for the right-aligned numeric columns. */
+  .num {
+    @apply font-mono tabular-nums;
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* Right-aligned variant for numeric columns (prices, pcts, counts). */
+  .num-r {
+    @apply num text-right;
+  }
+
+  /* Light surface card: white panel, 1px border, no elevation */
   .panel {
-    @apply border border-edge bg-base-panel shadow-panel;
+    @apply border border-edge bg-base-panel;
   }
 
   .panel-title {
@@ -75,17 +120,18 @@ body {
   }
 
   .field-value {
-    @apply font-mono text-sm text-ink;
+    @apply num text-sm text-ink;
   }
 
-  /* Form controls: white surfaces, edge borders, accent focus ring */
+  /* Form controls: white surfaces, hairline border. Focus is a 1px ink border,
+     not a soft glow; keyboard focus additionally gets the global 2px outline. */
   .input,
   .select,
   .select-native {
     @apply w-full border border-edge bg-white px-2.5 py-1.5
-      text-sm text-ink shadow-panel outline-none transition-colors
+      text-sm text-ink outline-none transition-colors
       placeholder:text-ink-dim hover:border-ink-faint
-      focus:border-accent focus:ring-2 focus:ring-accent/25;
+      focus:border-ink focus:ring-0;
   }
 
   .select option {
@@ -103,12 +149,12 @@ body {
     margin: 0;
   }
 
-  /* Secondary buttons */
+  /* Secondary buttons. Keyboard focus is the global 2px ink outline below, so
+     the local ring is dropped rather than doubled into a soft halo. */
   .btn {
     @apply inline-flex items-center justify-center gap-1.5 border border-edge
       bg-white px-3 py-1.5 text-sm font-medium text-ink-soft
-      shadow-panel transition-colors hover:border-ink/25 hover:text-ink
-      focus-visible:ring-2 focus-visible:ring-accent/40
+      transition-colors hover:border-ink/25 hover:text-ink
       disabled:pointer-events-none disabled:opacity-40;
   }
 
@@ -116,61 +162,59 @@ body {
     background-color: theme('colors.base.hover');
   }
 
-  /* Primary action: solid accent fill with white label on light */
+  /* Primary action: solid ink fill with white label */
   .btn-primary {
     @apply border border-accent bg-accent px-3 py-1.5 text-sm font-semibold
-      text-white shadow-panel transition-colors hover:bg-accent/90
-      focus-visible:ring-2 focus-visible:ring-accent/40
+      text-white transition-colors hover:bg-accent/90
       disabled:pointer-events-none disabled:opacity-40;
   }
 
   .btn-danger-ghost {
     @apply border-transparent bg-transparent text-ink-faint
-      hover:border-neg/30 hover:bg-neg/5 hover:text-neg
-      focus-visible:ring-2 focus-visible:ring-neg/30;
+      hover:border-neg/30 hover:bg-neg/5 hover:text-neg;
   }
 
-  /* Range sliders: 4px edge track + 16px accent thumb on both engines */
+  /* Range sliders: 2px edge track + rectangular ink thumb on both engines.
+     Square thumb, no glow: position is read from geometry, not from a soft
+     focus halo. */
   .slider {
     @apply h-1.5 w-full cursor-pointer appearance-none bg-transparent;
   }
 
   .slider::-webkit-slider-runnable-track {
-    height: 4px;
-    border-radius: 9999px;
+    height: 2px;
+    border-radius: 0;
     background: theme('colors.edge.DEFAULT');
   }
 
   .slider::-webkit-slider-thumb {
     -webkit-appearance: none;
-    margin-top: -6px; /* center a 16px thumb on a 4px track */
+    margin-top: -7px; /* center a 16px thumb on a 2px track */
     height: 16px;
-    width: 16px;
-    border-radius: 9999px;
-    background: theme('colors.accent.DEFAULT');
-    border: 2px solid theme('colors.base.panel');
-    box-shadow: theme('boxShadow.panel');
+    width: 8px;
+    border-radius: 0;
+    background: theme('colors.ink.DEFAULT');
+    border: 1px solid theme('colors.base.panel');
   }
 
   .slider::-moz-range-track {
-    height: 4px;
-    border-radius: 9999px;
+    height: 2px;
+    border-radius: 0;
     background: theme('colors.edge.DEFAULT');
   }
 
   .slider::-moz-range-thumb {
     height: 16px;
-    width: 16px;
-    border-radius: 9999px;
-    background: theme('colors.accent.DEFAULT');
-    border: 2px solid theme('colors.base.panel');
-    box-shadow: theme('boxShadow.panel');
+    width: 8px;
+    border-radius: 0;
+    background: theme('colors.ink.DEFAULT');
+    border: 1px solid theme('colors.base.panel');
   }
 
   .slider:focus-visible {
     outline: none;
-    box-shadow: 0 0 0 2px theme('colors.base.DEFAULT'),
-      0 0 0 4px theme('colors.accent.DEFAULT');
+    box-shadow: 0 0 0 1px theme('colors.base.DEFAULT'),
+      0 0 0 2px theme('colors.ink.DEFAULT');
   }
 
   /* Chips + misc */

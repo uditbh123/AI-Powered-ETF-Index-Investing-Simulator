@@ -347,7 +347,7 @@ export default function Portfolios() {
                         </option>
                       ))}
                     </select>
-                    <div className="flex h-8 w-24 items-center gap-0.5 border border-edge bg-white px-1.5 focus-within:border-accent focus-within:ring-2 focus-within:ring-accent/25">
+                    <div className="flex h-8 w-24 items-center gap-0.5 border border-edge bg-white px-1.5 focus-within:border-ink">
                       <input
                         type="number"
                         min="0"
@@ -503,7 +503,7 @@ export default function Portfolios() {
                         ))}
                       </span>
                     </td>
-                    <td className="px-4 py-2 text-right font-mono text-xs tabular-nums text-ink-soft">
+                    <td className="px-4 py-2 num-r text-xs text-ink-soft">
                       {formatCurrency(portfolio.monthly_contribution)}/mo
                     </td>
                     <td className="px-4 py-2 text-right font-mono text-xs text-ink-faint">

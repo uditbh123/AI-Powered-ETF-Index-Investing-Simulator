@@ -128,7 +128,7 @@ export default function FinancialNews() {
               Aggregate sentiment
             </span>
             <span
-              className={`mt-1 block font-mono text-2xl tabular-nums ${
+              className={`mt-1 num block text-2xl ${
                 feed.aggregate_score === null
                   ? 'text-ink-dim'
                   : scoreTone(feed.aggregate_score)
@@ -185,7 +185,7 @@ export default function FinancialNews() {
                       </span>
                     </span>
                     <span
-                      className={`shrink-0 font-mono text-sm tabular-nums ${scoreTone(h.sentiment_score)}`}
+                      className={`shrink-0 num text-sm ${scoreTone(h.sentiment_score)}`}
                     >
                       {formatScore(h.sentiment_score)}
                     </span>

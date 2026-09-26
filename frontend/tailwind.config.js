@@ -25,9 +25,12 @@ export default {
           faint: '#8A919E', // muted
           dim: '#8A919E', // muted (placeholders)
         },
+        // Accent is ink, not a brand hue. The palette is deliberately
+        // monochrome so that green/red carry exactly one meaning: the sign of a
+        // percentage change. Do not reintroduce a saturated accent here.
         accent: {
-          DEFAULT: '#0B5FFF',
-          dim: 'rgba(11, 95, 255, 0.65)', // accent-derived
+          DEFAULT: '#16181D',
+          dim: 'rgba(22, 24, 29, 0.65)', // accent-derived
         },
         pos: {
           DEFAULT: '#0E7C3A',
@@ -45,24 +48,18 @@ export default {
         },
       },
       fontFamily: {
-        sans: [
-          'Inter',
-          'ui-sans-serif',
-          'system-ui',
-          '-apple-system',
-          'Segoe UI',
-          'Roboto',
-          'sans-serif',
-        ],
-        mono: [
-          'JetBrains Mono',
-          'ui-monospace',
-          'SFMono-Regular',
-          'Menlo',
-          'Consolas',
-          'Liberation Mono',
-          'monospace',
-        ],
+        // The stacks themselves are declared once in src/index.css as
+        // --font-sans / --font-mono. Tailwind only references those vars, so a
+        // font change cannot drift between utilities and the inline
+        // fontFamily props passed to Recharts axis ticks.
+        //
+        // Archivo is a grotesque with tighter apertures than the previous
+        // Inter, which read generic at small sizes; labels and prose only.
+        // IBM Plex Mono is fixed-advance, so figures align in columns by font
+        // metric rather than by a fragile optional `tnum` feature. All numeric
+        // display type uses this face (see the `.num` utility in index.css).
+        sans: ['var(--font-sans)'],
+        mono: ['var(--font-mono)'],
       },
       // Fixed type scale (px). Body line-height 1.5, headings 1.2.
       fontSize: {
@@ -75,9 +72,17 @@ export default {
         '2xl': ['32px', '1.2'],
       },
       boxShadow: {
-        // Single soft elevation token for cards/panels on light.
-        panel: '0 1px 2px rgba(22, 24, 29, 0.06)',
+        // Elevation is removed entirely: surfaces are separated by 1px
+        // hairline borders, never by blur. `shadow-panel` is retained as a
+        // token name so the ~9 existing call sites stay valid and resolve to
+        // a flat, sharp surface.
+        panel: 'none',
         'accent-glow': 'none',
+      },
+      // Square geometry is the default. No `rounded-*` scale is provided on
+      // purpose, so a rounded corner cannot be introduced by accident.
+      borderRadius: {
+        none: '0px',
       },
       borderColor: {
         DEFAULT: '#E2E5EA',
