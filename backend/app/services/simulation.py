@@ -21,6 +21,14 @@ from ..dao import prices as price_dao
 from ..dao import simulations as simulation_dao
 from . import sentiment_signal
 
+# Version of the derived `stats` schema, folded into the run cache key. Cached
+# runs store their computed stats verbatim, so changing a stat's *definition*
+# (rather than the prices or the parameters) would otherwise keep replaying the
+# old number forever. v2 changed `upside_downside_ratio` from a final-value
+# percentile ratio to a monthly-return ratio; without this bump, every run
+# cached before that change would keep reporting the old `null`.
+STATS_VERSION = 2
+
 
 def _portfolio_monthly_returns_core(
     conn: sqlite3.Connection,
@@ -264,6 +272,10 @@ def run_portfolio_simulation(
     returns = portfolio_monthly_returns(conn, holdings)
     fingerprint = hashlib.sha1(returns.tobytes()).hexdigest()[:12]
     params["data_fingerprint"] = fingerprint
+    # Same rationale applied to the stats schema rather than the input data:
+    # bump STATS_VERSION whenever a stat's definition changes, so runs cached
+    # under the previous definition are recomputed instead of replayed.
+    params["stats_version"] = STATS_VERSION
     params_json = json.dumps(params, sort_keys=True)
 
     cached_run = simulation_dao.find_cached_run(conn, portfolio_id, params_json)

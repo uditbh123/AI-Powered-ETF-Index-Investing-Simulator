@@ -2,12 +2,9 @@ import { useCallback, useEffect, useState } from 'react'
 import { useLocation } from 'react-router-dom'
 import {
   Area,
-  Bar,
-  BarChart,
   CartesianGrid,
   ComposedChart,
   Line,
-  ReferenceLine,
   ResponsiveContainer,
   Tooltip,
   XAxis,
@@ -84,19 +81,21 @@ function FanTooltip({ active, payload }) {
   const point = payload[0].payload
   const rows = [
     { label: '90th', value: point.high, tone: 'text-pos' },
-    { label: 'median', value: point.median, tone: 'text-accent' },
+    { label: 'median', value: point.median, tone: 'text-ink' },
     { label: '10th', value: point.low, tone: 'text-neg' },
   ]
   return (
-    <div className="border border-edge bg-white px-3 py-2 shadow-panel">
-      <div className="text-xs text-ink-faint">
+    <div className="border border-ink bg-base-panel px-2 py-1.5">
+      <div className="text-11px uppercase tracking-widest text-ink-faint">
         Year {Math.floor(point.month / 12)} · month {point.month % 12}
       </div>
-      <div className="mt-1 space-y-0.5 font-mono text-xs tabular-nums">
+      <div className="mt-1 space-y-0.5">
         {rows.map(({ label, value, tone }) => (
           <div key={label} className="flex items-center justify-between gap-5">
-            <span className="text-ink-faint">{label}</span>
-            <span className={tone}>{formatCurrency(value)}</span>
+            <span className="text-11px uppercase tracking-widest text-ink-faint">
+              {label}
+            </span>
+            <span className={`num text-xs ${tone}`}>{formatCurrency(value)}</span>
           </div>
         ))}
       </div>
@@ -109,18 +108,22 @@ function CrisisFanTooltip({ active, payload }) {
   const point = payload[0].payload
   const rows = [
     { label: '90th', value: point.high, tone: 'text-pos' },
-    { label: 'median', value: point.median, tone: 'text-accent' },
+    { label: 'median', value: point.median, tone: 'text-ink' },
     { label: '10th', value: point.low, tone: 'text-neg' },
     { label: 'actual', value: point.actual, tone: 'text-pos' },
   ]
   return (
-    <div className="border border-edge bg-white px-3 py-2 shadow-panel">
-      <div className="text-xs text-ink-faint">Crisis month {point.month}</div>
-      <div className="mt-1 space-y-0.5 font-mono text-xs tabular-nums">
+    <div className="border border-ink bg-base-panel px-2 py-1.5">
+      <div className="text-11px uppercase tracking-widest text-ink-faint">
+        Crisis month {point.month}
+      </div>
+      <div className="mt-1 space-y-0.5">
         {rows.map(({ label, value, tone }) => (
           <div key={label} className="flex items-center justify-between gap-5">
-            <span className="text-ink-faint">{label}</span>
-            <span className={tone}>{formatCurrency(value)}</span>
+            <span className="text-11px uppercase tracking-widest text-ink-faint">
+              {label}
+            </span>
+            <span className={`num text-xs ${tone}`}>{formatCurrency(value)}</span>
           </div>
         ))}
       </div>
@@ -128,16 +131,29 @@ function CrisisFanTooltip({ active, payload }) {
   )
 }
 
-function HistogramTooltip({ active, payload }) {
+function TrajectoryTooltip({ active, payload }) {
   if (!active || !payload?.length) return null
   const point = payload[0].payload
+  const rows = [
+    { label: 'best p90', value: point.high },
+    { label: 'median p50', value: point.median },
+    { label: 'worst p10', value: point.low },
+    { label: 'contributed', value: point.contributed },
+  ]
   return (
-    <div className="border border-edge bg-white px-3 py-2 shadow-panel">
-      <div className="text-xs text-ink-faint">
-        {formatCurrency(point.low)} – {formatCurrency(point.high)}
+    <div className="border border-ink bg-base-panel px-2 py-1.5">
+      <div className="text-11px uppercase tracking-widest text-ink-faint">
+        Year {Math.floor(point.month / 12)} · month {point.month % 12}
       </div>
-      <div className="mt-1 font-mono text-xs tabular-nums">
-        {point.count} {point.count === 1 ? 'path' : 'paths'}
+      <div className="mt-1 space-y-0.5">
+        {rows.map(({ label, value }) => (
+          <div key={label} className="flex items-center justify-between gap-5">
+            <span className="text-11px uppercase tracking-widest text-ink-faint">
+              {label}
+            </span>
+            <span className="num text-xs text-ink">{formatCurrency(value)}</span>
+          </div>
+        ))}
       </div>
     </div>
   )
@@ -416,9 +432,13 @@ export default function Simulator() {
         {
           icon: Scale,
           label: 'Upside / downside',
+          // Sortino-style ratio on monthly returns. Null is now reserved for
+          // the genuinely undefined case (no losing month at all), not for
+          // "the p10 finished above the book value" as it used to be, so this
+          // card should essentially always show a number.
           value:
             stats.upside_downside_ratio === null
-              ? '—'
+              ? 'n/a'
               : `${stats.upside_downside_ratio.toFixed(2)}×`,
           tone:
             stats.upside_downside_ratio === null
@@ -426,6 +446,10 @@ export default function Simulator() {
               : stats.upside_downside_ratio >= 1
                 ? 'text-pos'
                 : 'text-neg',
+          title:
+            stats.upside_downside_ratio === null
+              ? 'No month was negative across the simulated paths, so downside deviation is zero and the ratio is undefined.'
+              : 'Mean of positive months divided by the root-mean-square of negative months, across all simulated paths.',
         },
         {
           icon: Activity,
@@ -436,28 +460,22 @@ export default function Simulator() {
       ]
     : []
 
-  const histogramData = stats
-    ? stats.histogram.bin_edges.slice(0, -1).map((low, i) => {
-        const high = stats.histogram.bin_edges[i + 1]
-        const mid = (low + high) / 2
-        return {
-          count: stats.histogram.counts[i],
-          low,
-          high,
-          label: `${Math.round(mid / 1000)}k`,
-          value: mid,
-        }
-      })
+  // Trajectory rows for the compact summary chart. `chartData` already carries
+  // the p10/p50/p90 paths from the run's percentile series; this only adds the
+  // book-value line at each month so the crossing point is readable. The
+  // contribution is applied at steps 1..horizon (never at step 0), which is
+  // why the run's own params are used rather than the live form state - the
+  // form may have been edited since the run was made, and a loaded portfolio
+  // carries its own monthly_contribution (which is not the slider's value).
+  const trajectoryData = result?.params
+    ? chartData.map((row) => ({
+        ...row,
+        contributed: Math.round(
+          Number(result.params.initial_balance ?? 0) +
+            Number(result.params.monthly_contribution ?? 0) * row.month,
+        ),
+      }))
     : []
-
-  const histogramBucketFor = (value) => {
-    if (!histogramData.length) return null
-    const edges = stats.histogram.bin_edges
-    if (value < edges[0] || value > edges[edges.length - 1]) return null
-    const index = edges.findIndex((e) => e >= value)
-    const bucket = histogramData[Math.min(Math.max(index - 1, 0), histogramData.length - 1)]
-    return bucket?.label ?? null
-  }
 
   const heatmapYears = {}
   for (const row of monthlyReturns ?? []) {
@@ -602,7 +620,7 @@ export default function Simulator() {
                           </option>
                         ))}
                     </select>
-                    <div className="flex h-8 w-16 items-center gap-0.5 border border-edge bg-white px-1.5 focus-within:border-accent focus-within:ring-2 focus-within:ring-accent/25">
+                    <div className="flex h-8 w-16 items-center gap-0.5 border border-edge bg-white px-1.5 focus-within:border-ink">
                       <input
                         type="number"
                         min="0"
@@ -681,7 +699,7 @@ export default function Simulator() {
                       <span className="block text-xs font-medium uppercase tracking-widest text-ink-faint">
                         {label}
                       </span>
-                      <span className="block truncate font-mono text-xl text-ink tabular-nums">
+                      <span className="block truncate num text-xl text-ink">
                         {formatCurrency(value)}
                       </span>
                     </span>
@@ -698,13 +716,13 @@ export default function Simulator() {
                     </span>
                   </div>
                   <div className="grid grid-cols-2 gap-x-4 gap-y-5 p-4 sm:grid-cols-3 xl:grid-cols-5">
-                    {insightCards.map(({ icon: Icon, label, value, tone }) => (
-                      <div key={label}>
+                    {insightCards.map(({ icon: Icon, label, value, tone, title }) => (
+                      <div key={label} title={title}>
                         <span className="flex items-center gap-1.5 text-11px font-semibold uppercase tracking-widest text-ink-faint">
                           <Icon size={12} strokeWidth={1.8} />
                           {label}
                         </span>
-                        <span className={`mt-1 block font-mono text-xl tabular-nums ${tone}`}>
+                        <span className={`mt-1 block num text-xl ${tone}`}>
                           {value}
                         </span>
                       </div>
@@ -713,56 +731,122 @@ export default function Simulator() {
                   <div className="border-t border-edge px-4 pb-4 pt-3">
                     <div className="flex flex-wrap items-center justify-between gap-2">
                       <span className="text-xs font-semibold uppercase tracking-widest text-ink-soft">
-                        Final value distribution
+                        Value trajectory
                       </span>
-                      <span className="flex items-center gap-3 font-mono text-xs text-ink-faint">
+                      <span className="flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-11px text-ink-faint">
                         <span className="flex items-center gap-1.5">
-                          <span className="h-0.5 w-4 bg-accent" />
-                          median
+                          <span className="h-px w-4 bg-ink opacity-30" />
+                          best p90
                         </span>
                         <span className="flex items-center gap-1.5">
-                          <span className="h-0.5 w-4 border-b border-dashed border-ink-dim" />
-                          total contributed
+                          <span className="h-0.5 w-4 bg-ink" />
+                          median p50
+                        </span>
+                        <span className="flex items-center gap-1.5">
+                          <span className="h-px w-4 bg-ink opacity-60" />
+                          worst p10
+                        </span>
+                        <span className="flex items-center gap-1.5">
+                          <span className="h-px w-4 bg-ink-faint" />
+                          contributed
                         </span>
                       </span>
                     </div>
-                    <div className="mt-3 h-40">
+                    <div className="mt-3 h-48">
                       <div
                         className="h-full w-full"
                         role="img"
-                        aria-label="Histogram of simulated final portfolio values"
+                        aria-label={`Best, median and worst case portfolio value trajectories over ${horizonYears} years, with the total contributed line for comparison`}
                       >
                         <ResponsiveContainer width="100%" height="100%">
-                          <BarChart data={histogramData} margin={{ top: 4, right: 8, bottom: 0, left: 0 }}>
-                            <CartesianGrid stroke="var(--chart-grid)" strokeDasharray="3 3" vertical={false} />
+                          <ComposedChart
+                            data={trajectoryData}
+                            margin={{ top: 4, right: 8, bottom: 0, left: 0 }}
+                          >
+                            <CartesianGrid stroke="var(--chart-grid)" vertical={false} />
                             <XAxis
-                              dataKey="label"
-                              tick={{ fill: 'var(--chart-axis)', fontSize: 12 }}
+                              dataKey="month"
+                              tick={{
+                                fill: 'var(--chart-axis)',
+                                fontSize: 11,
+                                fontFamily: 'var(--font-mono)',
+                              }}
                               tickLine={false}
                               axisLine={{ stroke: 'var(--chart-grid)' }}
-                              interval={Math.max(1, Math.floor(histogramData.length / 6))}
+                              minTickGap={48}
+                              tickFormatter={(m) => (m % 12 === 0 ? `${m / 12}y` : '')}
                             />
-                            <YAxis tick={false} tickLine={false} axisLine={false} width={2} />
+                            <YAxis
+                              tick={{
+                                fill: 'var(--chart-axis)',
+                                fontSize: 11,
+                                fontFamily: 'var(--font-mono)',
+                              }}
+                              tickFormatter={(v) => `${Math.round(v / 1000)}k`}
+                              tickLine={false}
+                              axisLine={false}
+                              width={44}
+                            />
                             <Tooltip
-                              cursor={{ fill: 'rgba(22, 24, 29, 0.06)' }}
-                              content={<HistogramTooltip />}
+                              content={<TrajectoryTooltip />}
+                              isAnimationActive={false}
+                              cursor={{
+                                stroke: 'var(--chart-axis)',
+                                strokeWidth: 1,
+                                strokeOpacity: 0.6,
+                              }}
                             />
-                            <Bar dataKey="count" fill="var(--chart-line)" fillOpacity={0.85} isAnimationActive={false} />
-                            {histogramBucketFor(stats.final_percentiles.p50) && (
-                              <ReferenceLine
-                                x={histogramBucketFor(stats.final_percentiles.p50)}
-                                stroke="var(--chart-line)"
-                                strokeWidth={1.5}
-                              />
-                            )}
-                            {histogramBucketFor(stats.total_contributed) && (
-                              <ReferenceLine
-                                x={histogramBucketFor(stats.total_contributed)}
-                                stroke="var(--chart-axis)"
-                                strokeDasharray="4 3"
-                              />
-                            )}
-                          </BarChart>
+                            {/* p90 / p10 frame the fan; alpha and width carry the
+                                distinction so all three paths stay in the
+                                monochrome palette. */}
+                            <Line
+                              type="monotone"
+                              dataKey="high"
+                              name="Best case (p90)"
+                              stroke="var(--chart-line)"
+                              strokeWidth={1}
+                              strokeOpacity={0.3}
+                              dot={false}
+                              activeDot={false}
+                              isAnimationActive={false}
+                            />
+                            <Line
+                              type="monotone"
+                              dataKey="low"
+                              name="Worst case (p10)"
+                              stroke="var(--chart-line)"
+                              strokeWidth={1}
+                              strokeOpacity={0.6}
+                              dot={false}
+                              activeDot={false}
+                              isAnimationActive={false}
+                            />
+                            <Line
+                              type="monotone"
+                              dataKey="median"
+                              name="Median (p50)"
+                              stroke="var(--chart-line)"
+                              strokeWidth={2}
+                              dot={false}
+                              activeDot={{
+                                r: 2.5,
+                                fill: 'var(--chart-line)',
+                                stroke: 'var(--chart-surface)',
+                                strokeWidth: 1,
+                              }}
+                              isAnimationActive={false}
+                            />
+                            <Line
+                              type="monotone"
+                              dataKey="contributed"
+                              name="Total contributed"
+                              stroke="var(--chart-axis)"
+                              strokeWidth={1}
+                              dot={false}
+                              activeDot={false}
+                              isAnimationActive={false}
+                            />
+                          </ComposedChart>
                         </ResponsiveContainer>
                       </div>
                     </div>
@@ -773,7 +857,7 @@ export default function Simulator() {
                   <h3 className="text-base font-semibold text-ink">Outcome insights</h3>
                   <p className="max-w-prose text-sm text-ink-soft">
                     This run predates the insights backend. Re-run the simulation to see
-                    outcome statistics, the final-value distribution, and the monthly-returns heatmap.
+                    outcome statistics, the value trajectory, and the monthly-returns heatmap.
                   </p>
                 </div>
               )}
@@ -877,7 +961,7 @@ export default function Simulator() {
                               <span
                                 key={month}
                                 title={`${year}-${String(month + 1).padStart(2, '0')} · ${value === null ? 'no data' : formatReturn(value)}`}
-                                className={`flex-1 rounded-none border ${value === null ? 'border-edge-subtle bg-white' : 'border-transparent'} px-0 py-1 text-right font-mono text-xs tabular-nums ${value === null ? '' : heatCellText(value)}`}
+                                className={`flex-1 rounded-none border ${value === null ? 'border-edge-subtle bg-white' : 'border-transparent'} px-0 py-1 num-r text-xs ${value === null ? '' : heatCellText(value)}`}
                                 style={heatCellStyle(value)}
                               >
                                 {value === null ? '·' : formatReturn(value)}

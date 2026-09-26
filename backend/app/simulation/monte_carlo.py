@@ -199,10 +199,22 @@ def compute_distribution_stats(
 
     ``paths`` is the (n_simulations, n_steps) matrix produced by
     :func:`simulate_paths`. ``total_contributed`` is the book value (initial
-    balance plus all monthly contributions) and is the baseline every outcome
-    is compared against: ``probability_of_profit`` is the fraction of paths
-    that end above it and ``upside_downside_ratio`` compares the 90th
-    percentile gain against the 10th percentile loss.
+    balance plus all monthly contributions) and is the baseline
+    ``probability_of_profit`` is measured against: the fraction of paths that
+    end above it.
+
+    ``upside_downside_ratio`` is the Sortino-family ratio computed on *monthly
+    simple returns* with a zero threshold: mean of the positive months divided
+    by the root-mean-square of the negative months. It deliberately does not
+    use final-value percentiles. The earlier definition,
+    ``(p90 - total_contributed) / (total_contributed - p10)``, was undefined in
+    the common case rather than the degenerate one: over any horizon long
+    enough for drift to matter, even the 10th-percentile path finishes above
+    the book value, so the denominator turned negative and the stat was
+    reported as null for most realistic long-horizon runs. The return-based
+    form only requires a losing month to exist somewhere in the fan, which is
+    not a meaningful restriction for a multi-period equity path. It is null
+    only when no step return is negative at all.
 
     ``median_max_drawdown`` is the median over paths of each path's peak-to-end
     drawdown. It is computed on the *portfolio* trajectory, so contributions
@@ -245,10 +257,25 @@ def compute_distribution_stats(
     drawdowns = np.where(running_peak > 0, drawdowns, 0.0)
     median_max_drawdown = float(np.median(drawdowns.min(axis=1)))
 
-    downside = total_contributed - float(p10)
-    upside_downside_ratio = (
-        (float(p90) - total_contributed) / downside if downside > 0.0 else None
-    )
+    # Upside/downside ratio over monthly simple returns, threshold 0.
+    # See the docstring for why this is not a final-value percentile ratio.
+    upside_downside_ratio: float | None = None
+    if paths.shape[1] >= 2:
+        opening = paths[:, :-1]
+        with np.errstate(invalid="ignore", divide="ignore"):
+            # A step opening on zero (initial_balance 0) has no defined
+            # return; 0 is the neutral choice, matching the drawdown
+            # convention above, and `np.where` keeps the division itself
+            # out of the result so no NaN can survive into the mean.
+            step_returns = np.where(
+                opening > 0, paths[:, 1:] / opening - 1.0, 0.0
+            )
+        mean_gain = float(np.mean(np.maximum(step_returns, 0.0)))
+        downside_deviation = float(
+            np.sqrt(np.mean(np.minimum(step_returns, 0.0) ** 2))
+        )
+        if downside_deviation > 0.0:
+            upside_downside_ratio = mean_gain / downside_deviation
 
     counts, bin_edges = np.histogram(finals, bins=20)
     histogram = {

@@ -205,7 +205,7 @@ Every simulation response now carries a `stats` object summarizing the full
 | `probability_of_profit` | Fraction of paths ending **above** `total_contributed`. |
 | `final_percentiles` | `p10 / p25 / p50 / p75 / p90` of the final values (`np.percentile`, linear). |
 | `median_max_drawdown` | Median over paths of each path's peak-to-end drawdown `value/cummax − 1`. |
-| `upside_downside_ratio` | `(p90 − total_contributed) / (total_contributed − p10)`; `null` when `p10 ≥ total_contributed` (all risk is downside-free). |
+| `upside_downside_ratio` | Sortino-family ratio on **monthly simple returns**, threshold 0: mean of positive months ÷ root-mean-square of negative months. `null` only when no month is negative. |
 | `histogram` | 20 equal-width bins of final values: `bin_edges` (21) + `counts` (20). |
 
 **Drawdown caveat.** `median_max_drawdown` is measured on the *portfolio*
@@ -215,3 +215,18 @@ proportionally **dampen** the reported magnitudes — it is *not* the drawdown a
 buy-and-hold investor in the underlying index would have seen. Months before
 any money is in the portfolio (zero initial balance) contribute a drawdown of
 exactly 0, never NaN.
+
+**Upside/downside caveat (definition changed).** This statistic was previously
+`(p90 − total_contributed) / (total_contributed − p10)`, which is **undefined in
+the common case, not the degenerate one**: over any horizon long enough for
+drift to matter, even the 10th-percentile path finishes *above* the book value,
+so `total_contributed − p10` goes negative and the API returned `null`. A
+default 10-year run on the seeded demo data hit this every time (contributed
+$46,000 vs p10 $50,562), so the metric rendered blank in the UI. The current
+form uses monthly step returns and only needs one losing month to exist, which
+is not a meaningful restriction for a multi-period equity path. Steps that open
+on zero (a zero initial balance) have no defined return and are counted as 0
+rather than NaN. Cached runs store their stats verbatim, so
+`STATS_VERSION` in `app/services/simulation.py` is folded into the run cache
+key; bump it whenever a stat's definition changes, or previously cached runs
+will keep replaying the old number.

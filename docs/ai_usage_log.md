@@ -1,4 +1,4 @@
-﻿# AI Usage Log
+# AI Usage Log
 
 Log of AI-assisted changes found through human code review. One entry per bug;
 evidence from the test suite is included.
@@ -693,4 +693,104 @@ evidence from the test suite is included.
 - **Files changed:** `backend/tests/test_import_hygiene.py` (new),
   `backend/app/services/news_fetch.py`, `openapi.json` (deleted),
   `docs/known_issues.md` (new), `README.md`, `AGENTS.md`,
+  `docs/ai_usage_log.md`.
+## Stage S1 -- Simulator trajectory chart + upside/downside fix
+
+**Goal.** Replace the "Final value distribution" histogram on the Simulator tab
+with an interactive worst/median/best trajectory chart, and fix the
+`Upside / downside` insight card that rendered blank.
+
+**Diagnosis (the blank was a real backend bug, not a display bug).** The card
+already had a null branch, and the API already returned the field, so the first
+step was to reproduce rather than assume. Running the real service against
+`simulator.db` with the UI's own defaults ($10,000 initial, $200/mo, 10 years)
+gave `total_contributed = 46,000` against `p10 = 50,562`. The old formula
+`(p90 - contributed) / (contributed - p10)` therefore had a **negative**
+denominator and the guard at `monte_carlo.py` returned `null`.
+
+The root cause is that the old definition is undefined in the *common* case
+rather than the degenerate one: over any horizon long enough for drift to
+matter, even the 10th-percentile path finishes above the book value. It was
+designed to fail only when an outcome was risk-free, but in practice it failed
+for most realistic long-horizon runs.
+
+- **S1a - metric redefined.** `upside_downside_ratio` is now the Sortino-family
+  ratio on monthly simple returns with a zero threshold: mean of positive months
+  divided by the root-mean-square of negative months. It only needs one losing
+  month to exist. Steps opening on zero (a zero initial balance) have no defined
+  return and are counted as 0 rather than NaN, matching the existing drawdown
+  convention. Null now means "no month was negative", not "the denominator went
+  negative". The real 10-year run above returns **1.0978** (and 1.0955 on a
+  different seed) instead of null. The response key is unchanged.
+- **S1b - cache invalidation bug found while verifying.** The first post-change
+  run still returned `null` because `run_portfolio_simulation` returned a
+  *cached* run whose stored `stats_json` predated the change; the cache key
+  covers params and a `data_fingerprint` of the price data, but nothing about
+  the stats schema. Shipping the formula change alone would have left every
+  previously cached run replaying the old `null`, making the fix look broken.
+  Added `STATS_VERSION` (currently 2) to `app/services/simulation.py`, folded
+  into the cache key alongside the existing fingerprint, following the same
+  rationale already documented there for price changes.
+- **S1c - tests.** Replaced the three old ratio tests with six covering the
+  exact value, the p10-above-contributed regression, an all-losing path
+  (defined `0.0`, not null or inf), an all-gaining path (null), a zero opening
+  balance (no NaN), and a single-column matrix (null). Two of my first drafts
+  failed for the right reason: one asserted `None` for a path set whose every
+  step return was positive (so null was correct), and one had the mean taken
+  over 2 returns instead of 6. Both were test-authoring errors, not code bugs.
+  One old test was also misnamed `..._is_none_when_no_downside` while asserting
+  the opposite; it is now `..._none_when_no_losses` and asserts what it says.
+- **S1d - frontend.** The "Final value distribution" `BarChart` is replaced by a
+  "Value trajectory" `ComposedChart` plotting the p10 / p50 / p90 paths over a
+  shared crosshair tooltip that reads all four values at once. The dead
+  histogram code is removed (`Bar`, `BarChart`, `HistogramTooltip`,
+  `histogramData`, `histogramBucketFor`); the backend still returns
+  `stats.histogram`, which is left in place for the API contract and documented
+  as such.
+- **S1e - design decisions on the new chart.** Three points worth recording,
+  since each was a deliberate choice rather than a default:
+  - *Monochrome encoding.* The palette is black/white/grey, so the three
+    percentile lines are distinguished by opacity and width (p90 at 0.3, p10 at
+    0.6, p50 at 2px solid) rather than by hue. A legend spells out the mapping
+    instead of relying on colour.
+  - *Contributed line reads `result.params`, not live form state.* This was
+    caught by the verification pass, not by inspection: the verification run
+    reported `monthly_contribution = 300` while the UI's contribution slider
+    sits at $200, because a loaded portfolio carries its own contribution. Had
+    the chart used the live slider value it would have silently drawn a wrong
+    book-value line for every existing portfolio. It is also applied at steps
+    1..horizon and never at step 0, matching the engine.
+  - *Kept as a plain derived `const`, not `useMemo`.* The neighbouring
+    `chartData` / `crisisChart` are plain consts recomputed each render, so
+    memoising `trajectoryData` on `[chartData, result]` would never hit its cache
+    (`chartData` has a fresh identity every render) and would only imply a
+    performance win that does not exist. Matching the surrounding convention was
+    the honest choice.
+- **S1f - ratio card copy.** The null branch now renders `n/a` instead of an
+  em dash, and the card carries a `title` explaining the definition (mean of
+  positive months over RMS of negative months) and what null means, so the
+  previously silent "blank card" cannot recur unreadably. The `title` was wired
+  through the existing `insightCards` renderer rather than special-cased.
+- **Verification.** Beyond the 264-test suite, the real HTTP path was exercised
+  through `TestClient` against a copy of `simulator.db` with the UI defaults,
+  asserting the whole response the frontend consumes: `stats_version = 2`,
+  `upside_downside_ratio = 1.0988` (a float, not null), percentile levels
+  `[10, 50, 90]` with 121-point paths, and `params.initial_balance` /
+  `params.monthly_contribution` present for the chart's book-value line. A
+  second identical POST was asserted to return `cached = True` **and** the same
+  ratio, which is the direct regression test for the S1b cache bug. Frontend
+  `oxlint` and `vite build` are clean.
+- **Known trade-off, flagged not hidden:** the page already had a "Growth fan
+  chart - 10th-90th percentile" panel directly below this one, plotting the same
+  p10/p50/p90 data as a filled band. Two identical hero charts would be a
+  regression in its own right, so the new panel was kept deliberately compact
+  (h-48, thinner lines, no filled area) and titled "Value trajectory" to read
+  as a summary against the book-value line rather than a second feature chart.
+  Consolidating the two into a single panel is the obvious follow-up and is
+  left for the user to decide.
+- **Test evidence:** backend suite `261 -> 264 passed` (0 failures, 0 skipped).
+  Frontend `oxlint` clean and `vite build` clean.
+- **Files changed:** `backend/app/simulation/monte_carlo.py`,
+  `backend/app/services/simulation.py`, `backend/tests/test_distribution_stats.py`,
+  `docs/data_methodology.md`, `frontend/src/pages/Simulator.jsx`,
   `docs/ai_usage_log.md`.

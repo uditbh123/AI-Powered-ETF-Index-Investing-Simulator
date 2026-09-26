@@ -3,6 +3,8 @@
 These use small hand-built path matrices with analytically known summary
 statistics so the function is validated independently of the bootstrap.
 """
+import math
+
 import numpy as np
 import pytest
 
@@ -48,48 +50,99 @@ def test_probability_of_profit_three_of_four_paths():
 
 
 def test_upside_downside_ratio_number():
+    # Two paths, two steps: one gains 100% then flat, the other loses 50% then
+    # flat. Four step returns in total: [+1.0, 0.0, -0.5, 0.0].
+    #   mean gain         = (1.0 + 0) / 4 = 0.25
+    #   downside deviation= sqrt((0 + 0.25) / 4) = 0.25
+    #   ratio             = 1.0
     paths = np.array(
         [
-            [100.0, 200.0, 300.0, 450.0],
-            [100.0, 200.0, 300.0, 700.0],
-            [100.0, 200.0, 300.0, 100.0],
-            [100.0, 200.0, 300.0, 600.0],
+            [100.0, 200.0, 200.0],
+            [100.0, 50.0, 50.0],
         ]
     )
-    stats = compute_distribution_stats(paths, initial_balance=0.0, monthly_contribution=100.0, horizon_months=4)
-    # contributed = 400, p90 = 670, p10 = 205 -> (670-400)/(400-205) = 1.3846..
-    assert stats["upside_downside_ratio"] == pytest.approx(270.0 / 195.0)
+    stats = compute_distribution_stats(
+        paths, initial_balance=0.0, monthly_contribution=0.0, horizon_months=2
+    )
+    assert stats["upside_downside_ratio"] == pytest.approx(1.0)
 
 
-def test_upside_downside_ratio_is_none_when_no_downside():
+def test_upside_downside_ratio_defined_when_p10_above_contributed():
+    # Regression case for the metric that read as blank in the UI. Every final
+    # value sits above the book value, which made the old final-value formula's
+    # denominator (contributed - p10) negative and the stat null. Each path
+    # also dips once, so the monthly-return form has a downside to divide by.
     paths = np.array(
         [
-            [100.0, 110.0, 120.0, 130.0],
-            [100.0, 120.0, 140.0, 160.0],
-            [100.0, 200.0, 300.0, 400.0],
-            [100.0, 150.0, 200.0, 250.0],
+            [100.0, 400.0, 350.0, 420.0],
+            [100.0, 500.0, 460.0, 520.0],
+            [100.0, 600.0, 570.0, 640.0],
+            [100.0, 700.0, 690.0, 760.0],
         ]
     )
-    stats = compute_distribution_stats(paths, initial_balance=0.0, monthly_contribution=100.0, horizon_months=2)
-    assert stats["total_contributed"] == 200.0
-    # all final values >= 130 > 200? no -> p10 will be below 200 -> ratio set.
+    stats = compute_distribution_stats(
+        paths, initial_balance=0.0, monthly_contribution=100.0, horizon_months=3
+    )
+    # contributed = 300 and every final value is >= 420.
+    assert stats["probability_of_profit"] == 1.0
     assert stats["upside_downside_ratio"] is not None
     assert stats["upside_downside_ratio"] > 0.0
 
 
-def test_upside_downside_none_when_p10_at_or_above_contributed():
+def test_upside_downside_ratio_is_zero_when_no_gains():
+    # Only losing months: the ratio is a defined 0.0, not None and not inf.
     paths = np.array(
         [
-            [100.0, 400.0, 410.0, 420.0],
-            [100.0, 500.0, 510.0, 520.0],
-            [100.0, 600.0, 610.0, 620.0],
-            [100.0, 700.0, 710.0, 720.0],
+            [100.0, 90.0, 80.0, 70.0],
+            [100.0, 95.0, 85.0, 75.0],
         ]
     )
-    stats = compute_distribution_stats(paths, initial_balance=0.0, monthly_contribution=100.0, horizon_months=3)
-    # contributed = 300; every final value >= 420 > 300 -> p10 > contributed
+    stats = compute_distribution_stats(
+        paths, initial_balance=0.0, monthly_contribution=0.0, horizon_months=3
+    )
+    assert stats["upside_downside_ratio"] == 0.0
+
+
+def test_upside_downside_ratio_none_when_no_losses():
+    # Only gaining months leaves downside deviation at zero, so the ratio is
+    # genuinely undefined. This is the one remaining null case.
+    paths = np.array(
+        [
+            [100.0, 110.0, 120.0, 130.0],
+            [100.0, 120.0, 140.0, 160.0],
+        ]
+    )
+    stats = compute_distribution_stats(
+        paths, initial_balance=0.0, monthly_contribution=0.0, horizon_months=3
+    )
     assert stats["upside_downside_ratio"] is None
-    assert stats["probability_of_profit"] == 1.0
+
+
+def test_upside_downside_ratio_handles_zero_opening_balance():
+    # initial_balance 0 means step 0 opens on zero and has no defined return;
+    # it must be treated neutrally rather than poisoning the mean with NaN.
+    paths = np.array(
+        [
+            [0.0, 100.0, 90.0, 110.0],
+            [0.0, 100.0, 120.0, 80.0],
+        ]
+    )
+    stats = compute_distribution_stats(
+        paths, initial_balance=0.0, monthly_contribution=100.0, horizon_months=3
+    )
+    ratio = stats["upside_downside_ratio"]
+    assert ratio is not None
+    assert not math.isnan(ratio)
+    assert ratio > 0.0
+
+
+def test_upside_downside_ratio_none_for_single_column_matrix():
+    # One column means no step returns at all; nothing to divide.
+    paths = np.array([[100.0], [120.0], [80.0]])
+    stats = compute_distribution_stats(
+        paths, initial_balance=0.0, monthly_contribution=0.0, horizon_months=1
+    )
+    assert stats["upside_downside_ratio"] is None
 
 
 def test_median_max_drawdown_only_ending_losers_count():
