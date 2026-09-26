@@ -28,7 +28,7 @@ import {
   TrendingUp,
   Wallet,
 } from 'lucide-react'
-import { fetchJSON } from '../api'
+import { fetchJSON, fractionToPercentInput, holdingsToFractions } from '../api'
 import { usePageTitle } from '../hooks/usePageTitle'
 
 const DEFAULT_HOLDINGS = [{ symbol: 'SPY', weight: 100 }]
@@ -225,7 +225,7 @@ export default function Simulator() {
     setHoldings(
       portfolio.holdings.map((h) => ({
         symbol: h.symbol,
-        weight: String(Math.round(h.weight * 100)),
+        weight: fractionToPercentInput(h.weight),
       })),
     )
   }, [])
@@ -289,11 +289,10 @@ export default function Simulator() {
     setCrisisData(null)
     try {
       // Weights are edited as percentages; the API stores fractions that sum
-      // to 1.0, so a reused portfolio converts before PATCHing.
-      const fractionHoldings = holdings.map((h) => ({
-        symbol: h.symbol,
-        weight: (Number(h.weight) || 0) / 100,
-      }))
+      // to 1.0, so a reused portfolio converts before PATCHing. The conversion
+      // is centralized in api.js so the scale can never diverge from the
+      // contract by more than one call site.
+      const fractionHoldings = holdingsToFractions(holdings)
       let portfolio
       if (selectedPortfolioId) {
         portfolio = await fetchJSON(`/portfolios/${selectedPortfolioId}`, {

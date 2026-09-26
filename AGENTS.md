@@ -15,7 +15,7 @@ changes into a commit.
 ## Commands
 
 - Backend suite: from `backend/` run `python -m pytest` (dev venv `.venv`, or
-  install `requirements-dev.txt`). Expected: 245 passing.
+  install `requirements-dev.txt`). Expected: 257 passing.
 - Lint/typecheck: frontend `npm run lint` (oxlint) — backend has no linter.
 - Frontend build: `npm run build`.
 - Ingest CLI: `backend` → `python -m app.scripts.ingest` (dev only).
@@ -64,6 +64,27 @@ Docker build overrides `VITE_API_BASE_URL=/`; trailing slashes are trimmed,
 so `'/' + '/tickers'` never double-slashes. When changing API calls, keep the
 leading-slash path convention.
 
+## Holding-weight convention
+
+Holding weights are **fractions in `(0, 1]` summing to `1.0`** (within
+`WEIGHT_SUM_TOLERANCE = 0.01`) — a whole sleeve is `1.0`, not `100`. The rule
+lives in exactly one place, `app/schemas.py::_check_weight_convention`, called
+by both `PortfolioCreate` and `PortfolioUpdate`; do not re-implement it per
+endpoint. `MAX_HOLDING_WEIGHT = 1.0` also carries the overflow guard (the sum is
+bounded by `MAX_HOLDINGS`, so a `1e308` weight summing to `inf` is unreachable).
+
+Percent scale is rejected deliberately, not incidentally: a `60/40` payload sent
+as percentages is renormalized by the engine into a uniform `50/50`, which
+returns plausible but wrong statistics. `portfolio_monthly_returns` still
+normalizes as defense-in-depth for write paths that bypass the API; treat it as
+a safety net, not the mechanism.
+
+`frontend/src/api.js` owns both conversions: `holdingsToFractions()` (submit
+direction) and `fractionToPercentInput()` (display). The UI edits percents and
+the Portfolios "total weight" indicator balances against `100`. Keep the
+percent → fraction conversion in that one helper — a second inline `/ 100`
+submits a 100x-too-large allocation.
+
 ## Deployment
 
 Single container: `Dockerfile` (node build stage → python:3.13-slim runtime
@@ -74,7 +95,7 @@ image. `ENABLE_SCHEDULER=0`. See `docs/deployment.md`.
 ## Git hygiene
 
 - `git status` noise that must never be committed: `D tree.txt`,
-  `?? project-tree.txt`.
+  `?? project-files.txt`, `?? project-tree.txt`.
 - Windows + PowerShell 5.1: pytest output is UTF-16 when redirected — set
   `$env:PYTHONUTF8=1`; single-quoted JSON is passed literally to `curl.exe`
   (use `--data-binary "@file"` with a temp payload file).

@@ -50,6 +50,13 @@ def _portfolio_monthly_returns_core(
         raise ValueError("not enough overlapping monthly history to simulate")
 
     weights = np.array([float(h["weight"]) for h in holdings], dtype=float)
+    # Defense-in-depth only. The API contract is fractions in (0, 1] summing to
+    # 1.0 (enforced by schemas._check_weight_convention on both create and
+    # PATCH), so by the time a row reaches here the weights already sum to 1.0
+    # and this division is a no-op. It stays because it is the one place that
+    # cannot be bypassed by a future write path (a script, a migration, a
+    # hand-edited DB) and it is what makes a mis-scaled row a renormalized
+    # portfolio rather than an overflow to inf.
     weights = weights / weights.sum()
     symbols = [h["symbol"] for h in holdings]
     portfolio_returns = (monthly_returns[symbols].to_numpy() * weights).sum(axis=1)
@@ -69,6 +76,9 @@ def portfolio_monthly_returns(
     frame, forward-filled, and the ragged early period (before every holding
     has data) is dropped. The monthly portfolio return is the weighted average
     of holding returns, weights normalized to sum to 1.
+
+    Weights arrive as fractions summing to 1.0 by contract; the normalization
+    is a safety net, not the mechanism (see ``_portfolio_monthly_returns_core``).
     """
     returns, _ = _portfolio_monthly_returns_core(conn, holdings)
     return returns

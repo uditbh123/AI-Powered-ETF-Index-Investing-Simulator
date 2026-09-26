@@ -152,7 +152,8 @@ def test_monthly_returns_missing_portfolio_404(client):
 
 def test_monthly_returns_no_history_400(client):
     # A portfolio whose holding has no price rows: the service must 400.
-    pid = _create_portfolio(client, holdings=[{"symbol": "QQQ", "weight": 1.0}, {"symbol": "SPY", "weight": 1.0}])["id"]
+    # Weights are fractions summing to 1.0, per the app-wide convention.
+    pid = _create_portfolio(client, holdings=[{"symbol": "QQQ", "weight": 0.5}, {"symbol": "SPY", "weight": 0.5}])["id"]
     # Remove every price row to force the "no price history" branch.
     conn = sqlite3.connect(settings.database_url[10:])
     conn.execute("DELETE FROM prices")

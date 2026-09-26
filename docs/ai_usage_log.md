@@ -552,3 +552,79 @@ evidence from the test suite is included.
   `frontend/src/components/TopNav.jsx`, `frontend/src/pages/Portfolios.jsx`,
   `frontend/src/pages/Simulator.jsx`, `docs/manual_test.md`,
   `docs/screenshots/light-theme/portfolios/*`, `docs/ai_usage_log.md`.
+
+## Stage W -- Weight convention unified: fractions everywhere
+- **Found by:** human review follow-up to the Stage L4 audit and the Stage L2
+  deviation noted above.
+- **What changed:** holding weights are now FRACTIONS in `(0, 1]` summing to
+  `1.0` within `0.01`, on both `POST /portfolios` and `PATCH /portfolios/{id}`.
+  - `backend/app/schemas.py`: `MAX_HOLDING_WEIGHT` is now `1.0` (a whole
+    sleeve) instead of the interim `100.0`; new `WEIGHT_SUM_TOLERANCE = 0.01`
+    and a single `_check_weight_convention()` called by **both** `PortfolioCreate`
+    and `PortfolioUpdate`, so the two endpoints can no longer drift apart. Uses
+    `math.fsum` so the tolerance compares against an exactly-rounded total. A
+    `field_validator` on `HoldingIn.weight` names the percent-scale mistake
+    ("0.6 (i.e. 60%) looks right if you meant a percentage") instead of the bare
+    "Input should be less than or equal to 1" that `le=1.0` alone produces.
+  - `backend/app/scripts/seed_demo.py`: seeds fractions (0.6/0.4, 1.0, 0.7/0.3)
+    and now **upserts by (user, name)**, rewriting stale holdings and scalars on
+    an existing row rather than skipping it. A DB seeded by an earlier revision
+    holds percent-scale weights the API now rejects, and those rows are exactly
+    what a re-run should repair. The summary reports `created` /
+    `repaired` / `unchanged`; CLI output prints weights as percent for humans.
+  - `backend/app/services/simulation.py`: the `weights / weights.sum()`
+    renormalization is unchanged and documented as defense-in-depth for write
+    paths that bypass the API (scripts, migrations, hand-edited DB), not as the
+    mechanism.
+  - `frontend/src/api.js`: one shared `holdingsToFractions()` performs the
+    percent → fraction conversion on submit, plus `fractionToPercentInput()` for
+    the display direction. `Simulator.jsx` and `Portfolios.jsx` both call them;
+    the two inline `/ 100` copies and the duplicated `weightPercent` helper were
+    removed so there is exactly one conversion site. The builder's
+    "total weight" indicator still balances against `100` (UI affordance only).
+- **Superseded — the interim `<= 100` cap from the Stage L4 audit:** that cap
+  existed only to accommodate percent-scale demo seeds. It admitted `60/40`
+  sent as percentages, which is harmless-looking and wrong: the engine
+  renormalizes, so a 60/40 request silently became a uniform `50/50` portfolio
+  and returned plausible but incorrect statistics. Overflow protection is not
+  lost -- it is strengthened, because `le=1.0` bounds the weight sum at
+  `MAX_HOLDINGS` (50), making the `inf` sum that motivated the cap (two
+  holdings at `1e308` → every normalized weight 0 → a silently flat, zero-variance
+  fan chart) unreachable.
+- **This also removes the Stage L2 deviation** recorded above ("`POST
+  /portfolios` still does NOT require sum-to-1.0 ... PATCH deliberately adds the
+  strict sum rule"). That asymmetry let a portfolio be created that could never
+  be re-saved with its own stored weights. Create and PATCH now share one
+  validator, and a test asserts a rejected PATCH leaves the stored weights
+  untouched.
+- **Regression guard for the scale itself:** a mis-scaled weight does not error
+  downstream, it just changes the numbers, so the tests assert behavior rather
+  than just status codes --
+  - `test_percent_scale_payload_is_rejected_by_create_and_patch` (422 on both
+    verbs, error names the expected fraction, PATCH left the row unchanged);
+  - `test_seeded_balanced_portfolio_matches_the_same_weights_posted_by_hand`
+    compares the seeded 60/40 against a hand-built `0.6/0.4` under a fixed seed;
+    had the seeder written `60/40` the two would renormalize differently and
+    disagree on `probability_of_profit` and the percentiles;
+  - `test_seeded_portfolios_simulate_to_sane_probabilities` asserts every seeded
+    portfolio lands strictly inside `(0, 1)` on a price series with real
+    drawdowns, so a degenerate weight cannot hide behind a plausible 0.0/1.0;
+  - `test_rerunning_repairs_percent_scale_rows_from_an_older_seed` and
+    `test_rerunning_does_not_duplicate_holdings` cover the upsert path;
+  - `test_seeded_weights_are_fractions_in_the_unit_interval` round-trips seeded
+    weights through `PortfolioCreate`, so demo data that the API would reject
+    fails the suite.
+- **Note (not changed here):** `openapi.json` at the repo root is a stale
+  checked-in dump (9 paths; missing `/news`, `/screener`, `/crisis-replay`,
+  `/monthly-returns`, PATCH, DELETE) and still shows the old `weight`
+  description. Regenerating it is left for a separate task, so it is not
+  updated here.
+- **Test evidence:** backend suite `245 → 257 passed` (0 failures, 0 skipped,
+  37s) via `--junitxml`; `npm run lint` clean; `npm run build` clean
+  (`VITE_API_BASE_URL=/`).
+- **Files changed:** `backend/app/schemas.py`,
+  `backend/app/scripts/seed_demo.py`, `backend/app/services/simulation.py`,
+  `backend/tests/test_seed_demo.py`, `backend/tests/test_input_limits.py`,
+  `backend/tests/test_insights_api.py`, `frontend/src/api.js`,
+  `frontend/src/pages/Simulator.jsx`, `frontend/src/pages/Portfolios.jsx`,
+  `README.md`, `AGENTS.md`, `docs/ai_usage_log.md`.

@@ -2,9 +2,10 @@
 from __future__ import annotations
 
 import math
+from collections.abc import Sequence
 from typing import Literal
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 # --- Input bounds (Stage L4 hostile-input audit) ---------------------------
 # Every bound below exists because an audit probe demonstrated a concrete
@@ -14,15 +15,24 @@ from pydantic import BaseModel, Field, model_validator
 #: a multi-kilobyte symbol from being echoed back in a 404 detail message.
 MAX_SYMBOL_LENGTH = 32
 
-#: Largest single holding weight. The UI edits weights as percentages and the
-#: demo seeder stores percent-scale values (100 = the whole sleeve), so 100 is
-#: the natural ceiling. It also stops the weight sum from overflowing to inf:
-#: two holdings at 1e308 sum to inf, every normalized weight becomes 0, and the
-#: simulation silently returns a zero-variance (flat) fan chart.
-MAX_HOLDING_WEIGHT = 100.0
+#: Largest single holding weight. The weight convention is FRACTIONS: a whole
+#: sleeve is 1.0, so 1.0 is the ceiling and the floor is 0 (exclusive). This
+#: supersedes the interim ``<= 100`` cap from the Stage L4 audit, which only
+#: existed to accommodate percent-scale seeds.
+#:
+#: The bound is also the overflow guard the 100 cap was invented for: two
+#: holdings at 1e308 used to sum to inf, every normalized weight became 0, and
+#: the simulation silently returned a zero-variance (flat) fan chart. With
+#: ``le=1.0`` the sum is bounded by MAX_HOLDINGS, so inf is unreachable.
+MAX_HOLDING_WEIGHT = 1.0
+
+#: How far a portfolio's holding weights may drift from summing to exactly 1.0.
+#: Absorbs float drift (0.1 + 0.2 + 0.7) without letting a genuinely
+#: unbalanced portfolio through.
+WEIGHT_SUM_TOLERANCE = 0.01
 
 #: Most holdings one portfolio may hold. Caps the request body and, with
-#: MAX_HOLDING_WEIGHT, bounds the weight sum at 5000 (no overflow).
+#: MAX_HOLDING_WEIGHT, bounds the weight sum at 50 (no overflow).
 MAX_HOLDINGS = 50
 
 #: Largest starting balance / monthly contribution accepted, in dollars. The UI
@@ -61,9 +71,68 @@ def _reject_non_finite(value: float, field: str) -> None:
         raise ValueError(f"{field} must be a finite number")
 
 
+def _check_weight_convention(holdings: Sequence["HoldingIn"]) -> None:
+    """Enforce the single weight convention: fractions in (0, 1] summing to 1.0.
+
+    Per-holding bounds (finite, ``0 < w <= 1``) are declared on
+    ``HoldingIn.weight``; this checks the aggregate. Both ``PortfolioCreate`` and
+    ``PortfolioUpdate`` call it, so the two endpoints cannot drift apart again.
+
+    Why the sum matters as well as the per-weight ceiling: a percent-scale
+    payload such as ``[{"SPY": 60}, {"QQQ": 40}]`` passes any per-weight check
+    on its own and looks like a plausible request, but the engine renormalizes,
+    so it silently becomes a 50/50 portfolio instead of the 60/40 that was
+    asked for. Rejecting it is the only way the caller finds out.
+
+    ``math.fsum`` is used rather than ``sum`` so the tolerance compares against
+    an exactly-rounded total.
+    """
+    total = math.fsum(h.weight for h in holdings)
+    if abs(total - 1.0) > WEIGHT_SUM_TOLERANCE:
+        raise ValueError(
+            "holding weights must be fractions in (0, 1] that sum to 1.0 "
+            f"(within {WEIGHT_SUM_TOLERANCE}); got a total of {total:.6g} from "
+            f"{len(holdings)} holding(s) -- send 0.6 for 60%, not 60"
+        )
+
+
+def _reject_non_finite_contribution(contribution: float) -> None:
+    _reject_non_finite(contribution, "monthly_contribution")
+
+
 class HoldingIn(BaseModel):
+    """One holding. ``weight`` is a FRACTION: 0.6 means 60% of the sleeve.
+
+    The bound is ``(0, MAX_HOLDING_WEIGHT]`` = ``(0, 1.0]``. A 0 weight is
+    rejected because the holding would be stored but contribute nothing.
+    """
+
     symbol: str = Field(min_length=1, max_length=MAX_SYMBOL_LENGTH)
     weight: float = Field(gt=0, le=MAX_HOLDING_WEIGHT)
+
+    @field_validator("weight", mode="before")
+    @classmethod
+    def _explain_percent_scale(cls, value: object) -> object:
+        """Name the percent-scale mistake instead of just tripping ``le``.
+
+        ``le=1.0`` alone rejects 60.0 with "Input should be less than or equal
+        to 1" -- true, but it leaves the caller guessing whether they sent the
+        wrong number or the wrong unit. Since the contract is fractions, say
+        which fraction they probably meant.
+        """
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            return value
+        if math.isfinite(value) and value > MAX_HOLDING_WEIGHT:
+            scaled = value / 100.0
+            hint = (
+                f"; {scaled:g} (i.e. {value:g}%) looks right if you meant a percentage"
+                if 0.0 < scaled <= 1.0
+                else ""
+            )
+            raise ValueError(
+                f"weight must be a fraction in (0, {MAX_HOLDING_WEIGHT:g}]{hint}"
+            )
+        return value
 
     @model_validator(mode="after")
     def _check_finite_weight(self) -> "HoldingIn":
@@ -72,25 +141,11 @@ class HoldingIn(BaseModel):
 
 
 class PortfolioCreate(BaseModel):
-    name: str = Field(min_length=1, max_length=120)
-    monthly_contribution: float = Field(default=0.0, ge=0, le=MAX_MONTHLY_CONTRIBUTION)
-    holdings: list[HoldingIn] = Field(min_length=1, max_length=MAX_HOLDINGS)
+    """A new portfolio. Holding weights are fractions summing to 1.0.
 
-    @model_validator(mode="after")
-    def _check_positive_weight_sum(self) -> "PortfolioCreate":
-        _reject_non_finite(self.monthly_contribution, "monthly_contribution")
-        if sum(h.weight for h in self.holdings) <= 0:
-            raise ValueError("holding weights must sum to a positive amount")
-        return self
-
-
-class PortfolioUpdate(BaseModel):
-    """Full replacement update: name, contribution, and holdings swap atomically.
-
-    Mirrors create validation (>=1 holding, each weight > 0) and adds the
-    production rule the simulator relies on: weights must sum to 1.0 within
-    +/- 0.01. The simulation engine re-normalizes weights at read time, but
-    enforcing the sum here keeps stored allocations honest for the UI.
+    Validation is identical to :class:`PortfolioUpdate` by construction: both
+    call ``_check_weight_convention``, so a portfolio that creates cleanly can
+    always be re-PATCHed with its own stored weights, and vice versa.
     """
 
     name: str = Field(min_length=1, max_length=120)
@@ -98,10 +153,29 @@ class PortfolioUpdate(BaseModel):
     holdings: list[HoldingIn] = Field(min_length=1, max_length=MAX_HOLDINGS)
 
     @model_validator(mode="after")
-    def _check_weights_sum_to_one(self) -> "PortfolioUpdate":
-        _reject_non_finite(self.monthly_contribution, "monthly_contribution")
-        if abs(sum(h.weight for h in self.holdings) - 1.0) > 0.01:
-            raise ValueError("holding weights must sum to 1.0 (within 0.01)")
+    def _check_weights(self) -> "PortfolioCreate":
+        _reject_non_finite_contribution(self.monthly_contribution)
+        _check_weight_convention(self.holdings)
+        return self
+
+
+class PortfolioUpdate(BaseModel):
+    """Full replacement update: name, contribution, and holdings swap atomically.
+
+    Mirrors create validation exactly (>=1 holding, each weight a fraction in
+    (0, 1], weights summing to 1.0 within 0.01). The simulation engine still
+    re-normalizes weights at read time, but that is defense-in-depth: nothing
+    should reach it unvalidated.
+    """
+
+    name: str = Field(min_length=1, max_length=120)
+    monthly_contribution: float = Field(default=0.0, ge=0, le=MAX_MONTHLY_CONTRIBUTION)
+    holdings: list[HoldingIn] = Field(min_length=1, max_length=MAX_HOLDINGS)
+
+    @model_validator(mode="after")
+    def _check_weights(self) -> "PortfolioUpdate":
+        _reject_non_finite_contribution(self.monthly_contribution)
+        _check_weight_convention(self.holdings)
         return self
 
 
@@ -211,6 +285,7 @@ __all__ = [
     "MAX_SYMBOL_LENGTH",
     "MAX_HOLDING_WEIGHT",
     "MAX_HOLDINGS",
+    "WEIGHT_SUM_TOLERANCE",
     "MAX_INITIAL_BALANCE",
     "MAX_MONTHLY_CONTRIBUTION",
     "MAX_BLOCK_MONTHS",

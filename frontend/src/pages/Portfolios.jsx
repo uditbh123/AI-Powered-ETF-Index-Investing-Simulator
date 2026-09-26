@@ -10,7 +10,7 @@ import {
   Wallet,
   X,
 } from 'lucide-react'
-import { fetchJSON } from '../api'
+import { fetchJSON, fractionToPercentInput, holdingsToFractions } from '../api'
 import { usePageTitle } from '../hooks/usePageTitle'
 
 function formatCurrency(value) {
@@ -27,10 +27,6 @@ function formatDate(value) {
     month: 'short',
     day: 'numeric',
   })
-}
-
-function weightPercent(weight) {
-  return Math.round(Number(weight) * 100)
 }
 
 export default function Portfolios() {
@@ -100,6 +96,9 @@ export default function Portfolios() {
       form.holdings.reduce((sum, h) => sum + (Number(h.weight) || 0), 0),
     [form.holdings],
   )
+  // The builder edits percents, so the indicator balances against 100. That is
+  // a UI affordance only: the payload is converted to fractions by
+  // holdingsToFractions and validated against 1.0 by the API.
   const balanced = totalWeight >= 99 && totalWeight <= 101
   const canSave = Boolean(form.name.trim()) && balanced && !saving
 
@@ -124,7 +123,7 @@ export default function Portfolios() {
       contribution: String(portfolio.monthly_contribution ?? 0),
       holdings: portfolio.holdings.map((h) => ({
         symbol: h.symbol,
-        weight: String(weightPercent(h.weight)),
+        weight: fractionToPercentInput(h.weight),
       })),
     })
     setMode('edit')
@@ -168,10 +167,7 @@ export default function Portfolios() {
     const body = {
       name: form.name.trim(),
       monthly_contribution: Number(form.contribution) || 0,
-      holdings: form.holdings.map((row) => ({
-        symbol: row.symbol,
-        weight: (Number(row.weight) || 0) / 100,
-      })),
+      holdings: holdingsToFractions(form.holdings),
     }
     try {
       const saved =
@@ -499,7 +495,7 @@ export default function Portfolios() {
                       <span className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5">
                         {portfolio.holdings.map((holding, index, all) => (
                           <span key={holding.symbol} className="font-mono text-xs text-ink-soft">
-                            {holding.symbol} {weightPercent(holding.weight)}%
+                            {holding.symbol} {Math.round(holding.weight * 100)}%
                             {index < all.length - 1 && (
                               <span className="mx-1 text-ink-dim">·</span>
                             )}

@@ -94,8 +94,51 @@ dev server exposes these via the `/api` prefix (e.g. `/api/tickers`).
 | POST | `/portfolios` | Create a config: name, monthly contribution, holdings (symbol + weight) |
 | GET | `/portfolios` | List portfolios |
 | GET | `/portfolios/{id}` | Portfolio detail with holdings |
+| PATCH | `/portfolios/{id}` | Full replacement of name, contribution, and holdings |
+| DELETE | `/portfolios/{id}` | Delete a portfolio and its runs, results, and holdings |
 | POST | `/portfolios/{id}/simulate` | Run a Monte Carlo simulation; params: `initial_balance`, `horizon_months`, `n_simulations`, optional `seed`/`blocks`, optional `use_sentiment` |
 | GET | `/simulation-runs/{id}` | Fetch a cached run's results |
+
+### Holding weights are fractions
+
+**One convention everywhere: a holding weight is a fraction in `(0, 1]` and a
+portfolio's weights sum to `1.0` (within `0.01`).** A whole sleeve is `1.0`.
+
+```jsonc
+// 60/40 split -- correct
+{ "holdings": [{ "symbol": "VTI", "weight": 0.6 },
+               { "symbol": "BND", "weight": 0.4 }] }
+
+// 60/40 sent as percentages -- 422, with "0.6 (i.e. 60%) looks right" in the
+// error message
+{ "holdings": [{ "symbol": "VTI", "weight": 60 },
+               { "symbol": "BND", "weight": 40 }] }
+```
+
+`POST /portfolios` and `PATCH /portfolios/{id}` enforce the identical rule, so a
+portfolio that creates cleanly can always be re-saved with its own stored
+weights. The `le=1.0` ceiling is also the overflow guard: it bounds the weight
+sum at 50 (the holdings cap), so the `inf` sum that used to silently flatten a
+fan chart is unreachable.
+
+The reason for strictness is that a mis-scaled weight does **not** error
+downstream — the engine renormalizes, so `60/40` would quietly become a uniform
+`50/50` portfolio and return plausible-looking but wrong statistics. Rejecting
+it at the door is the only way a caller finds out. The renormalization in
+`portfolio_monthly_returns` remains as defense-in-depth for write paths that
+bypass the API (scripts, migrations, a hand-edited DB); nothing should reach it
+unvalidated.
+
+The UI shows and accepts **percents**, because that is how allocation is read
+aloud, and converts on submit through a single shared helper
+(`holdingsToFractions` in `frontend/src/api.js`). The Portfolios builder's
+"total weight" indicator balances against `100`; the payload it sends balances
+against `1.0`. Keep the percent → fraction conversion in that one helper — a
+second inline `/ 100` is how a 100x-too-large allocation gets submitted.
+
+> **Superseded:** the Stage L4 audit briefly capped weights at `<= 100` to
+> accommodate percent-scale demo seeds. That interim cap is replaced by the
+> fraction convention above; see [docs/ai_usage_log.md](docs/ai_usage_log.md).
 
 When a built SPA (`frontend/dist`, or the `FRONTEND_DIST` env override) is
 present, the same server also serves the frontend at `/` with a client-side

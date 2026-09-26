@@ -234,13 +234,19 @@ def test_monthly_contribution_ceiling(client):
 
 
 # ---------------------------------------------------------------------------
-# Holdings payload: weight overflow, list size, symbol length
+# Holdings payload: weight scale, list size, symbol length
 # ---------------------------------------------------------------------------
 
-@pytest.mark.parametrize("weight", [1e308, 1e6, 100.5])
-def test_overflowing_weights_are_rejected(client, weight):
-    """Two holdings at 1e308 sum to inf, so every normalized weight becomes 0
-    and the engine returns a silently flat, zero-variance fan chart."""
+@pytest.mark.parametrize("weight", [1e308, 1e6, 100.0, 100.5, 2.0])
+def test_percent_scale_and_overflowing_weights_are_rejected(client, weight):
+    """A weight above a whole sleeve is refused.
+
+    1e308 is the original overflow probe: two such holdings summed to inf,
+    every normalized weight became 0, and the engine returned a silently flat,
+    zero-variance fan chart. 100.0 / 100.5 / 2.0 are the percent-scale
+    mistake this convention now catches at the door -- the interim ``<= 100``
+    cap used to admit all three, and 60/40 silently became a uniform blend.
+    """
     response = client.post(
         "/portfolios",
         json={
@@ -263,30 +269,106 @@ def test_infinite_weight_token_is_rejected(client):
     assert "weight" in json.dumps(response.json())
 
 
-def test_weight_ceiling_allows_both_scales_in_use():
-    """Fractions (0.6) and the percent scale seed_demo stores (100.0) both
-    pass; anything above a whole sleeve does not."""
-    for weight in (0.001, 0.6, 1.0, 100.0, MAX_HOLDING_WEIGHT):
+def test_weight_is_a_fraction_and_fractions_are_accepted():
+    """The convention: fractions in (0, 1]. A whole sleeve is 1.0.
+
+    Checked per-weight via the schema (each holding is paired with a
+    complement so the sum rule cannot be what rejects the case).
+    """
+    for weight in (0.001, 0.1, 0.5, 0.6, 0.999, 1.0):
         assert _weight_accepted(weight), weight
-    assert not _weight_accepted(MAX_HOLDING_WEIGHT * 1.01)
+    for weight in (100.0, 2.0, MAX_HOLDING_WEIGHT * 1.01):
+        assert not _weight_accepted(weight), weight
 
 
 def _weight_accepted(weight: float) -> bool:
-    from app.schemas import PortfolioCreate
+    """Does HoldingIn accept this weight? (Sum rule deliberately satisfied.)"""
+    from app.schemas import HoldingIn
 
     try:
-        PortfolioCreate(name="x", holdings=[{"symbol": "SPY", "weight": weight}])
+        HoldingIn(symbol="SPY", weight=weight)
     except Exception:
         return False
     return True
 
 
+def test_weight_ceiling_is_one():
+    """MAX_HOLDING_WEIGHT is the fraction ceiling, not the old percent cap.
+
+    It is the load-bearing constant for the overflow guard: with the sum
+    bounded by MAX_HOLDINGS, the inf that motivated the cap is unreachable.
+    """
+    assert MAX_HOLDING_WEIGHT == 1.0
+    assert MAX_HOLDING_WEIGHT * MAX_HOLDINGS == MAX_HOLDINGS
+
+
+def test_weight_sum_must_be_one_within_tolerance_on_create(client):
+    """The create endpoint enforces the same sum rule as PATCH.
+
+    Before the convention change, POST only required a positive sum while
+    PATCH required ~1.0, so a portfolio could be created that could never be
+    re-saved with its own weights.
+    """
+    for holdings, why in (
+        ([{"symbol": "SPY", "weight": 0.6}], "under: 0.6"),
+        ([{"symbol": "SPY", "weight": 0.5}, {"symbol": "QQQ", "weight": 0.4}], "0.9"),
+        ([{"symbol": "SPY", "weight": 0.6}, {"symbol": "QQQ", "weight": 0.6}], "over: 1.2"),
+        ([{"symbol": "SPY", "weight": 0.995}, {"symbol": "QQQ", "weight": 0.02}], "1.015"),
+    ):
+        response = client.post("/portfolios", json={"name": "x", "holdings": holdings})
+        assert response.status_code == 422, why
+        detail = json.dumps(response.json())
+        assert "sum" in detail, why
+
+    # Inside the tolerance: float drift on an exact 1.0 is still accepted.
+    ok = client.post(
+        "/portfolios",
+        json={"name": "x", "holdings": [{"symbol": "SPY", "weight": 0.1},
+                                        {"symbol": "QQQ", "weight": 0.2},
+                                        {"symbol": "VTI", "weight": 0.7}]},
+    )
+    assert ok.status_code == 201, ok.text
+
+
+def test_percent_scale_payload_is_rejected_by_create_and_patch(client, pid):
+    """The regression this convention exists for: 60/40 sent as 60/40.
+
+    Asserted on both verbs, since a payload that creates cleanly must be
+    re-savable and vice versa.
+    """
+    percent_scale = [
+        {"symbol": "SPY", "weight": 60.0},
+        {"symbol": "QQQ", "weight": 40.0},
+    ]
+
+    created = client.post(
+        "/portfolios",
+        json={"name": "percent", "monthly_contribution": 100.0, "holdings": percent_scale},
+    )
+    assert created.status_code == 422
+    assert "0.6" in created.text, "the error should name the fraction it expected"
+
+    patched = client.patch(
+        f"/portfolios/{pid}",
+        json={"name": "percent", "monthly_contribution": 100.0, "holdings": percent_scale},
+    )
+    assert patched.status_code == 422
+    assert "0.6" in patched.text
+
+    # ...and the portfolio is untouched by the rejected PATCH.
+    assert {h["symbol"]: h["weight"] for h in client.get(f"/portfolios/{pid}").json()["holdings"]} == {
+        "SPY": 0.6,
+        "QQQ": 0.4,
+    }
+
+
 def test_holdings_list_length_is_capped(client):
+    each = 1.0 / MAX_HOLDINGS
     too_many = client.post(
         "/portfolios",
         json={
             "name": "x",
-            "holdings": [{"symbol": "SPY", "weight": 1.0}] * (MAX_HOLDINGS + 1),
+            "holdings": [{"symbol": "SPY", "weight": each}] * (MAX_HOLDINGS + 1),
         },
     )
     assert too_many.status_code == 422
@@ -294,7 +376,7 @@ def test_holdings_list_length_is_capped(client):
         "/portfolios",
         json={
             "name": "x",
-            "holdings": [{"symbol": "SPY", "weight": 1.0}] * MAX_HOLDINGS,
+            "holdings": [{"symbol": "SPY", "weight": each}] * MAX_HOLDINGS,
         },
     )
     assert at_cap.status_code == 201

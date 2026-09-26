@@ -1,7 +1,16 @@
 """Seed three demo portfolios attached to a "Demo User".
 
-Idempotent: portfolios are keyed by (user, name), so re-running creates no
-duplicates and leaves existing rows untouched.
+Weights follow the app-wide convention: FRACTIONS summing to 1.0 (0.6 is 60%),
+which is what ``PortfolioCreate``/``PortfolioUpdate`` accept and what
+``portfolio_monthly_returns`` consumes. This script writes them directly, so it
+is the one place that had to change when the API tightened from the interim
+``<= 100`` percent cap to the fraction convention.
+
+Upserts by (user, name): a re-run creates missing portfolios and *repairs*
+existing ones, rewriting stale holdings left over from an earlier seed. That
+matters because a database seeded by an older revision holds percent-scale
+weights (100/60/40) that the API would now reject, and those rows are exactly
+what a fresh `python -m app.scripts.seed_demo` should repair.
 
 Usage (from backend/):
     python -m app.scripts.seed_demo
@@ -22,8 +31,8 @@ DEMO_USER_NAME = "Demo User"
 # "Balanced 60/40" split: ~60% equity / 40% bond ETF. The bond leg falls back
 # to the lowest-volatility catalog ticker when no bond ETF is available.
 BALANCED_EQUITY = "VTI"
-BALANCED_EQUITY_WEIGHT = 60.0
-BALANCED_BOND_WEIGHT = 40.0
+BALANCED_EQUITY_WEIGHT = 0.6
+BALANCED_BOND_WEIGHT = 0.4
 
 # Known bond ETFs (catalog also often flags them via sector == "... Bonds").
 _BOND_SYMBOLS = {"BND", "TLT", "SHY", "AGG", "GOVT"}
@@ -88,7 +97,7 @@ def _demo_specs(conn) -> list[dict]:
         {
             "name": "All-World Growth",
             "monthly_contribution": 200.0,
-            "holdings": [("VXUS", 100.0)],
+            "holdings": [("VXUS", 1.0)],
             "note": None,
         },
         {
@@ -100,7 +109,7 @@ def _demo_specs(conn) -> list[dict]:
         {
             "name": "Tech Tilt",
             "monthly_contribution": 200.0,
-            "holdings": [("QQQ", 70.0), ("VXUS", 30.0)],
+            "holdings": [("QQQ", 0.7), ("VXUS", 0.3)],
             "note": None,
         },
     ]
@@ -119,7 +128,7 @@ def _resolve_holdings(conn, holdings: list[tuple[str, float]]) -> list[dict]:
     return resolved
 
 
-def _summary(conn, portfolio_id: int, spec: dict, created: bool) -> dict:
+def _summary(conn, portfolio_id: int, spec: dict, created: bool, repaired: bool) -> dict:
     holdings = []
     for row in portfolio_dao.list_holdings(conn, portfolio_id):
         holdings.append(
@@ -135,33 +144,74 @@ def _summary(conn, portfolio_id: int, spec: dict, created: bool) -> dict:
         "monthly_contribution": float(spec["monthly_contribution"]),
         "holdings": holdings,
         "created": created,
+        "repaired": repaired,
         "note": spec.get("note"),
     }
 
 
-def seed_demo(conn) -> list[dict]:
-    """Create the demo portfolios for "Demo User". Idempotent by name.
+def _stored_signature(conn, portfolio_id: int, resolved: list[dict], contribution: float) -> tuple:
+    """What the DB currently holds, for deciding whether a repair is needed."""
+    stored = portfolio_dao.list_holdings(conn, portfolio_id)
+    stored_weights = [
+        (row["ticker_id"], float(row["weight"])) for row in stored
+    ]
+    target_weights = [(h["ticker_id"], float(h["weight"])) for h in resolved]
+    row = portfolio_dao.get_portfolio(conn, portfolio_id)
+    return (
+        float(row["monthly_contribution"] if row else contribution) == float(contribution),
+        stored_weights == target_weights,
+    )
 
-    Returns a summary dict per portfolio (id, holdings, weights, created).
-    Caller commits.
+
+def seed_demo(conn) -> list[dict]:
+    """Upsert the demo portfolios for "Demo User", keyed by (user, name).
+
+    Returns a summary dict per portfolio (id, holdings, weights, created,
+    repaired). Caller commits. A portfolio that already exists with the
+    intended scalars and fraction weights is left alone; one that does not
+    (an older percent-scale seed, a hand-edited row) has its holdings
+    replaced and is reported as ``repaired``.
     """
     user_id = portfolio_dao.get_or_create_user(conn, DEMO_USER_NAME)
     results = []
     for spec in _demo_specs(conn):
-        existing = portfolio_dao.get_portfolio_by_user_and_name(conn, user_id, spec["name"])
-        if existing is not None:
-            results.append(_summary(conn, existing["id"], spec, created=False))
-            continue
         resolved = _resolve_holdings(conn, spec["holdings"])
-        portfolio_id = portfolio_dao.create_portfolio(
-            conn,
-            user_id=user_id,
-            name=spec["name"],
-            monthly_contribution=spec["monthly_contribution"],
+        existing = portfolio_dao.get_portfolio_by_user_and_name(conn, user_id, spec["name"])
+
+        if existing is None:
+            portfolio_id = portfolio_dao.create_portfolio(
+                conn,
+                user_id=user_id,
+                name=spec["name"],
+                monthly_contribution=spec["monthly_contribution"],
+            )
+            for holding in resolved:
+                portfolio_dao.add_holding(
+                    conn, portfolio_id, holding["ticker_id"], holding["weight"]
+                )
+            results.append(_summary(conn, portfolio_id, spec, created=True, repaired=False))
+            continue
+
+        portfolio_id = existing["id"]
+        contribution_ok, weights_ok = _stored_signature(
+            conn, portfolio_id, resolved, spec["monthly_contribution"]
         )
-        for holding in resolved:
-            portfolio_dao.add_holding(conn, portfolio_id, holding["ticker_id"], holding["weight"])
-        results.append(_summary(conn, portfolio_id, spec, created=True))
+        repaired = not (contribution_ok and weights_ok)
+        if repaired:
+            portfolio_dao.update_portfolio(
+                conn,
+                portfolio_id,
+                name=spec["name"],
+                monthly_contribution=spec["monthly_contribution"],
+            )
+            portfolio_dao.delete_holdings(conn, portfolio_id)
+            for holding in resolved:
+                portfolio_dao.add_holding(
+                    conn, portfolio_id, holding["ticker_id"], holding["weight"]
+                )
+        results.append(
+            _summary(conn, portfolio_id, spec, created=False, repaired=repaired)
+        )
     conn.commit()
     return results
 
@@ -176,11 +226,17 @@ def main(argv: list[str] | None = None) -> int:
         conn.close()
 
     for r in results:
-        status = "created" if r["created"] else "already exists"
+        if r["created"]:
+            status = "created"
+        elif r["repaired"]:
+            status = "repaired"
+        else:
+            status = "unchanged"
         contribution = f"{r['monthly_contribution']:.0f}"
         print(f"[{status}] #{r['id']}  {r['name']}  (${contribution}/mo)")
         for h in r["holdings"]:
-            print(f"    {h['symbol']:<6} {h['weight']:.0f}%  {h['name']}")
+            # Stored as a fraction; shown as the percent a person expects.
+            print(f"    {h['symbol']:<6} {h['weight']:.1%}  {h['name']}")
         if r.get("note"):
             print(f"    note: {r['note']}")
     print(f"\nDemo user: {DEMO_USER_NAME} — {len(results)} portfolios.")
