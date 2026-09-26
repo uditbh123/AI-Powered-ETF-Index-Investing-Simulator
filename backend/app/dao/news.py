@@ -54,8 +54,15 @@ def list_sentiment(
     start: str | None = None,
     end: str | None = None,
     desc: bool = False,
+    limit: int | None = None,
 ) -> list[sqlite3.Row]:
-    """Return sentiment rows, optional category/ticker/date filters, by date."""
+    """Return sentiment rows, optional category/ticker/date filters, by date.
+
+    ``limit`` caps the row count in SQL (not in Python) so a wide window over a
+    large news table is never fully materialized just to be sliced down to the
+    newest few. Combined with the date ordering it returns the newest ``limit``
+    rows when ``desc`` is set.
+    """
     query = "SELECT id, ticker_id_or_null, headline, source, published_at, sentiment_score, category FROM news_sentiment WHERE 1 = 1"
     params: list[Any] = []
     if category is not None:
@@ -71,6 +78,9 @@ def list_sentiment(
         query += " AND published_at <= ?"
         params.append(end)
     query += " ORDER BY published_at DESC, id DESC" if desc else " ORDER BY published_at, id"
+    if limit is not None:
+        query += " LIMIT ?"
+        params.append(limit)
     return conn.execute(query, params).fetchall()
 
 

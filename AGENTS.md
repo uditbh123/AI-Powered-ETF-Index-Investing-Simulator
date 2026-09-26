@@ -15,7 +15,7 @@ changes into a commit.
 ## Commands
 
 - Backend suite: from `backend/` run `python -m pytest` (dev venv `.venv`, or
-  install `requirements-dev.txt`). Expected: 181 passing.
+  install `requirements-dev.txt`). Expected: 245 passing.
 - Lint/typecheck: frontend `npm run lint` (oxlint) — backend has no linter.
 - Frontend build: `npm run build`.
 - Ingest CLI: `backend` → `python -m app.scripts.ingest` (dev only).

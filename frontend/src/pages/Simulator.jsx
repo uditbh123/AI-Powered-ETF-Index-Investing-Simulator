@@ -313,7 +313,7 @@ export default function Simulator() {
           body: JSON.stringify({
             name: name.trim() || 'My Portfolio',
             monthly_contribution: Number(contribution),
-            holdings,
+            holdings: fractionHoldings,
           }),
         })
         setSelectedPortfolioId(portfolio.id)

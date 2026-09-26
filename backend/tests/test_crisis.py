@@ -205,13 +205,16 @@ def test_crisis_replay_invalid_initial_balance_returns_422(client):
     )
 
 
-def test_crisis_replay_missing_portfolio_returns_400(client):
+def test_crisis_replay_missing_portfolio_returns_404(client):
+    # A missing portfolio is a 404 like every other portfolio route, not a 400
+    # (the service's ValueError is reserved for "history does not cover the
+    # window" style failures).
     response = client.post(
         "/portfolios/9999/crisis-replay",
         json={"crisis": "covid_2020", "initial_balance": 10_000},
     )
-    assert response.status_code == 400
-    assert "portfolio 9999 not found" == response.json()["detail"]
+    assert response.status_code == 404
+    assert "portfolio not found" == response.json()["detail"]
 
 
 def test_crisis_replay_portfolio_without_holdings_returns_400(client):

@@ -5,6 +5,7 @@ import sqlite3
 
 from fastapi import APIRouter, Depends, HTTPException
 
+from ..dao import portfolios as portfolio_dao
 from ..deps import get_db
 from ..schemas import SimulationRequest
 from ..services.simulation import get_run_response, run_portfolio_simulation
@@ -18,6 +19,11 @@ def trigger_simulation(
     request: SimulationRequest,
     conn: sqlite3.Connection = Depends(get_db),
 ) -> dict:
+    # Existence is checked here (not left to the service's ValueError) so a
+    # missing portfolio is a 404 like every other portfolio route, and the
+    # service's ValueError is reserved for genuine "cannot simulate" reasons.
+    if portfolio_dao.get_portfolio(conn, portfolio_id) is None:
+        raise HTTPException(status_code=404, detail="portfolio not found")
     try:
         return run_portfolio_simulation(
             conn,
