@@ -1,0 +1,69 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "AI-Powered ETF & Index Investing Simulator — Runtime Architecture",
+    "quality_profile": "showcase"
+  },
+  "layout": { "mode": "grid", "cols": 5, "gapX": 46, "gapY": 48, "cellW": 190, "cellH": 64 },
+  "components": [
+    { "id": "browser", "type": "frontend", "label": "Browser", "sublabel": "React SPA", "tag": "untrusted", "row": 0, "col": 0 },
+    { "id": "api", "type": "backend", "label": "ASGI App", "sublabel": "FastAPI :8000", "tag": "1 process", "row": 0, "col": 1 },
+    { "id": "schemas", "type": "security", "label": "Schema Validation", "sublabel": "Pydantic bounds", "tag": "422 JSON", "row": 0, "col": 2 },
+    { "id": "services", "type": "backend", "label": "Services", "sublabel": "pandas", "row": 0, "col": 3 },
+    { "id": "engine", "type": "backend", "label": "Monte Carlo", "sublabel": "numpy engine", "tag": "CPU + RAM bound", "row": 0, "col": 4 },
+    { "id": "runcache", "type": "database", "label": "Run Cache", "sublabel": "simulation_runs", "tag": "no TTL", "row": 1, "col": 2 },
+    { "id": "dao", "type": "backend", "label": "DAO Layer", "sublabel": "raw SQL", "row": 1, "col": 3 },
+    { "id": "sqlite", "type": "database", "label": "SQLite", "sublabel": "WAL file", "tag": "106k rows", "row": 1, "col": 4 },
+    { "id": "extdata", "type": "external", "label": "Yahoo Finance", "sublabel": "yfinance", "row": 2, "col": 3 },
+    { "id": "ingest", "type": "backend", "label": "Ingest", "sublabel": "CLI + scheduler", "tag": "dev only", "row": 2, "col": 4 },
+    { "id": "extnews", "type": "external", "label": "RSS + HF Hub", "sublabel": "FinBERT", "row": 3, "col": 4 }
+  ],
+  "boundaries": [
+    { "kind": "region", "label": "Docker runtime image · requirements.txt only", "wraps": ["api", "schemas", "services", "engine", "runcache", "dao", "sqlite"] },
+    { "kind": "security-group", "label": "TB1 · unauthenticated :8000", "wraps": ["api", "schemas"] },
+    { "kind": "security-group", "label": "TB4 · filesystem · .env · *.db", "wraps": ["runcache", "dao", "sqlite"] },
+    { "kind": "region", "label": "Ingest plane · dev only", "wraps": ["ingest", "extdata", "extnews"] }
+  ],
+  "connections": [
+    { "id": "client-http", "from": "browser", "to": "api", "label": "HTTP · no auth", "variant": "emphasis" },
+    { "id": "validate-hop", "from": "api", "to": "schemas", "label": "parse + bound" },
+    { "id": "simulate-hop", "from": "schemas", "to": "services", "label": "SimulationRequest", "variant": "emphasis" },
+    { "id": "engine-hop", "from": "services", "to": "engine", "label": "run_simulation", "variant": "emphasis" },
+    { "id": "service-sql", "from": "services", "to": "dao", "label": "prices, holdings", "labelAt": [850, 154] },
+    { "id": "cache-lookup", "from": "services", "to": "runcache", "label": "hit skips engine", "variant": "dashed" },
+    { "id": "dao-sql", "from": "dao", "to": "sqlite", "label": "sqlite3 · fk ON" },
+    { "id": "yahoo-pull", "from": "extdata", "to": "ingest", "label": "OHLC download", "variant": "dashed" },
+    { "id": "rss-pull", "from": "extnews", "to": "ingest", "label": "RSS + score", "variant": "dashed" },
+    { "id": "ingest-write", "from": "ingest", "to": "sqlite", "label": "writes prices, news", "variant": "dashed" }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "Primary path — POST /portfolios/{id}/simulate",
+      "items": [
+        "Browser → uvicorn → Pydantic bounds → router 404 check → service → numpy engine → SQLite",
+        "A cache hit returns cached:true and never enters the engine",
+        "One process also serves frontend/dist at / — no CDN, no second origin"
+      ]
+    },
+    {
+      "dot": "rose",
+      "title": "TB1 — no authentication anywhere",
+      "items": [
+        "No auth, session, cookie, JWT, CSRF or user model; anyone reaching :8000 can read, create, PATCH and DELETE every portfolio",
+        "Only resource bounding exists (MAX_PATH_STEPS, MAX_HOLDINGS, price caps) — not access control",
+        "No queue, Redis or external cache; no ORM or migrations; container runs as root and its DB writes are lost on redeploy"
+      ]
+    },
+    {
+      "dot": "amber",
+      "title": "TB2 / TB3 — ingest is outside the image",
+      "items": [
+        "Zero outbound network on the request path; every read is local SQLite",
+        "yfinance, feedparser, torch, transformers and APScheduler are absent from requirements.txt, held off only by lazy imports",
+        "ENABLE_SCHEDULER=0, so the deployed app never refreshes its own snapshot"
+      ]
+    }
+  ]
+}
