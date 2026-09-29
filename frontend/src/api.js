@@ -28,8 +28,6 @@ export async function fetchJSON(path, options = {}) {
   return body
 }
 
-export const API_BASE_URL = API_BASE
-
 // --- Holding-weight convention ---------------------------------------------
 // The API stores holding weights as FRACTIONS in (0, 1] summing to 1.0
 // (0.6 = 60%). The holdings builders deliberately show and accept PERCENTS

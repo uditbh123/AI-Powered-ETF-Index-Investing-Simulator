@@ -126,8 +126,7 @@ textarea {
   /* Form controls: white surfaces, hairline border. Focus is a 1px ink border,
      not a soft glow; keyboard focus additionally gets the global 2px outline. */
   .input,
-  .select,
-  .select-native {
+  .select {
     @apply w-full border border-edge bg-white px-2.5 py-1.5
       text-sm text-ink outline-none transition-colors
       placeholder:text-ink-dim hover:border-ink-faint

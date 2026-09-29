@@ -48,7 +48,6 @@ export default function Portfolios() {
   const [deleting, setDeleting] = useState(null)
   const [deletingError, setDeletingError] = useState(null)
   const deleteCancelRef = useRef(null)
-  const dialogRef = useRef(null)
 
   useEffect(() => {
     Promise.all([fetchJSON('/portfolios'), fetchJSON('/tickers')])
@@ -210,20 +209,8 @@ export default function Portfolios() {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between gap-4">
-        <div>
-          <span className="text-xs font-semibold uppercase tracking-widest text-ink-soft">
-            Portfolios
-          </span>
-          <h1 className="mt-0.5 text-2xl font-semibold tracking-tight text-ink">
-            Your portfolios
-          </h1>
-          <p className="mt-1 max-w-prose text-sm text-ink-soft">
-            Define an allocation once, then open any portfolio in the Simulator
-            to chart its projected growth.
-          </p>
-        </div>
-        {!editsForm && (
+      {!editsForm && (
+        <div className="flex items-center justify-end gap-4">
           <div className="flex shrink-0 items-center gap-2">
             {!loading && !error && (
               <span className="chip shrink-0">
@@ -236,8 +223,8 @@ export default function Portfolios() {
               New portfolio
             </button>
           </div>
-        )}
-      </div>
+        </div>
+      )}
 
       {editsForm && (
         <form className="panel" onSubmit={saveForm}>
@@ -555,7 +542,6 @@ export default function Portfolios() {
             aria-hidden="true"
           />
           <div
-            ref={dialogRef}
             role="dialog"
             aria-modal="true"
             aria-labelledby="confirm-delete-title"

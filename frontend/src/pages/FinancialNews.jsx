@@ -61,24 +61,6 @@ export default function FinancialNews() {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight text-ink">
-            Financial News
-          </h1>
-          <p className="mt-1 max-w-prose text-sm text-ink-soft">
-            Sector and geopolitical headlines scored by the FinBERT sentiment
-            pipeline.
-          </p>
-        </div>
-        {!loading && !error && feed && (
-          <span className="chip shrink-0">
-            <Clock size={11} strokeWidth={2} className="text-accent" />
-            {feed.n_headlines} headlines · {days}d window
-          </span>
-        )}
-      </div>
-
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex gap-1 border border-edge-subtle bg-base-hover p-1">
           {CATEGORIES.map((c) => (
@@ -97,6 +79,12 @@ export default function FinancialNews() {
             </button>
           ))}
         </div>
+        {!loading && !error && feed && (
+          <span className="chip shrink-0">
+            <Clock size={11} strokeWidth={2} className="text-accent" />
+            {feed.n_headlines} headlines · {days}d window
+          </span>
+        )}
         <div className="flex gap-1">
           {DAY_OPTIONS.map((option) => (
             <button

@@ -51,6 +51,24 @@ function fetchScreener() {
   return fetchJSON('/screener')
 }
 
+/**
+ * The screener deliberately returns every stored ticker, benchmark indices
+ * included (`test_screener_returns_stored_tickers_only`). ^DJI, ^GSPC and ^IXIC
+ * are there on purpose: the ingest scripts key Google News searches off them
+ * and their price history backs the benchmark comparisons. But they are market
+ * indices, not ETFs - you cannot hold them in a brokerage account - and this is
+ * the ETF screener, so listing them as selectable tickers is misleading.
+ *
+ * Keyed on the catalog's own `sector` classification ("Index - ...") rather
+ * than the `^` prefix, so the UI follows the data's stated asset type instead
+ * of Yahoo's ticker convention.
+ */
+const INDEX_SECTOR_PREFIX = 'Index -'
+
+function isIndexRow(row) {
+  return typeof row.sector === 'string' && row.sector.startsWith(INDEX_SECTOR_PREFIX)
+}
+
 function SortIcon({ column, sortKey, sortDir }) {
   if (sortKey !== column.key) {
     return <ArrowUpDown size={11} strokeWidth={1.8} className="text-ink-dim" />
@@ -88,9 +106,11 @@ export default function Etfs() {
       .finally(() => setLoading(false))
   }
 
+  const etfRows = useMemo(() => rows.filter((row) => !isIndexRow(row)), [rows])
+
   const sortedRows = useMemo(() => {
     const direction = sortDir === 'asc' ? 1 : -1
-    return [...rows].sort((a, b) => {
+    return [...etfRows].sort((a, b) => {
       const left = a[sortKey]
       const right = b[sortKey]
       if (left == null && right == null) return 0
@@ -101,7 +121,7 @@ export default function Etfs() {
       }
       return (left - right) * direction
     })
-  }, [rows, sortKey, sortDir])
+  }, [etfRows, sortKey, sortDir])
 
   function toggleSort(key) {
     if (key === sortKey) {
@@ -114,23 +134,14 @@ export default function Etfs() {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight text-ink">
-            ETF screener
-          </h1>
-          <p className="mt-1 max-w-prose text-sm text-ink-soft">
-            Screening stats computed from stored price history. Click a row to
-            open it in the simulator.
-          </p>
-        </div>
-        {!loading && !error && (
+      {!loading && !error && (
+        <div className="flex justify-end">
           <span className="chip shrink-0">
             <BarChart3 size={11} strokeWidth={2} className="text-accent" />
-            {rows.length.toString().padStart(2, '0')} tracked
+            {etfRows.length.toString().padStart(2, '0')} tracked
           </span>
-        )}
-      </div>
+        </div>
+      )}
 
       {loading && (
         <div className="panel space-y-2 p-4">
