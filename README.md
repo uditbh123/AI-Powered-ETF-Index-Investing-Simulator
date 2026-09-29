@@ -97,7 +97,7 @@ exposes the API via the `/api` prefix (e.g. `/api/tickers`).
 | GET | `/portfolios/{id}` | Portfolio detail with holdings |
 | PATCH | `/portfolios/{id}` | Full replacement of name, contribution, and holdings |
 | DELETE | `/portfolios/{id}` | Delete a portfolio and its runs, results, and holdings |
-| POST | `/portfolios/{id}/simulate` | Run a Monte Carlo simulation; params: `initial_balance`, `horizon_months`, `n_simulations`, optional `seed`/`blocks`, optional `use_sentiment` |
+| POST | `/portfolios/{id}/simulate` | Run a Monte Carlo simulation; params: `initial_balance`, `horizon_months`, `n_simulations`, optional `seed`/`blocks`, optional `use_sentiment`, optional `adjust_for_inflation`/`apply_capital_gains_tax` |
 | GET | `/simulation-runs/{id}` | Fetch a cached run's results |
 
 ### Holding weights are fractions
@@ -176,6 +176,88 @@ response's `sentiment` block reports `applied`, the raw `score`, and the
 "neutral/absent". Sentiment runs are cached under a key that includes the
 aggregate score, so fresh news never serves a stale run.
 
+## Real-world basis switches
+
+Nominal dollars flatter every long-term projection, so a run can optionally be
+reported on a real basis. Two booleans on `POST /portfolios/{id}/simulate`, both
+defaulting to `false`:
+
+| Param | Effect |
+|---|---|
+| `adjust_for_inflation` | Deflate every path by `(1 + rate) ** (t / 12)` |
+| `apply_capital_gains_tax` | Charge tax on the final value of profitable paths |
+
+The adjustment is applied to the simulated paths **after** the Monte Carlo
+draw, never to the returns that feed the bootstrap. Deflating the returns would
+change the resampled distribution rather than the units it is reported in — a
+far larger claim than the toggle makes. Percentile trajectories and every
+distribution stat are then derived from the adjusted paths, so the chart, the
+summary and the stats cannot disagree about which basis is in use.
+
+Rates are module constants (`INFLATION_ANNUAL_RATE`, `CAPITAL_GAINS_TAX_RATE`),
+not client-supplied, so the endpoint cannot be used to post arbitrary figures.
+`CAPITAL_GAINS_TAX_RATE` is `0.15` rather than the literal `0%` US federal
+long-term rate, because a `0%` toggle would be a no-op that misrepresents the
+trade-off.
+
+Tax is charged only where it is owed: only on the final column, only on paths
+that finished profitable, and never enough to flip a profitable path into a
+loss.
+
+With inflation on, the book value is deflated by the horizon factor too. Leaving
+`total_contributed` nominal would compare a deflated final value against an
+undiscounted cost basis and misreport every run as unprofitable, so both sides
+are put in the same units and the cash actually paid in is reported separately
+as `nominal_total_contributed`.
+
+The run reports what it did in `stats.adjustments`, persisted with the run so a
+cache hit replays the same disclosure a fresh run produced:
+
+```jsonc
+"adjustments": {
+  "inflation_adjusted": true,
+  "inflation_rate": 0.03,
+  "capital_gains_tax_applied": false,
+  "capital_gains_tax_rate": 0.0,
+  "total_contributed": 20764.71,          // deflated, same units as the paths
+  "nominal_total_contributed": 28000.0,   // the cash actually paid in
+  "mean_capital_gains_tax": 0.0,
+  "median_capital_gains_tax": 0.0,
+  "taxable_fraction_of_paths": 0.0
+}
+```
+
+Each rate reads back as `0.0` when its toggle is off, so a rate of `0.15` in this
+block always means the tax was actually charged.
+
+Both toggles are part of the cache key, so a deflated run is never served to a
+request that did not ask for one. That also changes every `params_json` string,
+which makes previously cached runs unreachable — see the `STATS_VERSION` note in
+`backend/app/services/simulation.py`. Every field above is read with a fallback
+in the UI, because runs cached before this feature carry no such block.
+
+## Strategy handoff to the Simulator
+
+A Strategies card links to the Simulator with that strategy's allocation
+pre-filled, via a query string:
+
+```
+/simulator?holdings=VTI:54,VXUS:36,BND:10
+```
+
+Weights in this URL are **percents**, matching the portfolio form's editing
+surface; the conversion to the fractions the API expects still goes through
+`holdingsToFractions` in `frontend/src/api.js` and nowhere else. Both halves of
+the contract — building the query string and parsing it — live in
+`frontend/src/strategyHoldings.js`, so a format change has exactly one home.
+This mirrors why the fraction conversion is not open coded at each call site.
+
+The Simulator re-fills when the search string changes, not only on mount, so
+clicking a second strategy card (or using browser back) cannot leave the
+previous holdings on screen while the URL claims otherwise. A search with no
+pre-fill (e.g. `?portfolio=ID`) is left alone so the portfolio deep-link can
+populate the form instead.
+
 ## Backend tests
 
 The simulation engine (Phase 2) is a pure, API-independent module validated
@@ -183,7 +265,7 @@ against analytically solvable baselines (including the start-of-period
 contribution-timing closed form, volatility drag, and bootstrap matching) plus
 schema/database-connection integrity checks. The DAO and ingestion layers
 (Phase 1) are tested against a temp SQLite file with mocked fetch output, so
-tests never touch the network. The current suite is 181 tests run from
+tests never touch the network. The current suite is 300 tests run from
 `backend/`:
 
 ```bash

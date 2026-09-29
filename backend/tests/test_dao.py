@@ -1,10 +1,7 @@
 """Tests for the tickers and prices DAO layers."""
-import pytest
-
 from app.dao import prices as price_dao
 from app.dao import tickers as ticker_dao
 from app.data.ticker_catalog import DEFAULT_TICKERS
-from app.database import get_connection
 
 
 def test_get_or_create_ticker_is_idempotent(db):

@@ -10,7 +10,6 @@ import argparse
 import logging
 import sys
 
-from app.config import settings
 from app.database import init_db
 from app.services.market_data import refresh_catalog, seed_catalog
 from app.data.ticker_catalog import DEFAULT_TICKERS, SYMBOLS

@@ -17,7 +17,6 @@ from __future__ import annotations
 import logging
 from datetime import date, datetime
 from typing import Any, TypedDict
-from urllib.parse import urlparse
 
 from ..config import settings
 from ..data.news_sources import NewsSource

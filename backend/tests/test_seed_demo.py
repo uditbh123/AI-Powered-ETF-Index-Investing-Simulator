@@ -154,7 +154,6 @@ def test_rerunning_repairs_percent_scale_rows_from_an_older_seed(db):
     balanced_id = next(r for r in first if r["name"] == "Balanced 60/40")["id"]
 
     # Simulate the old seed: overwrite the holdings with percent-scale values.
-    user_id = portfolio_dao.get_or_create_user(db, DEMO_USER_NAME)
     portfolio_dao.delete_holdings(db, balanced_id)
     for symbol, weight in (("VTI", 60.0), ("BND", 40.0)):
         ticker = ticker_dao.get_ticker(db, symbol)

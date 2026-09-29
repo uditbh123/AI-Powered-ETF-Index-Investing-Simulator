@@ -5,8 +5,6 @@ return series the engine bootstraps from can change even when all parameters
 are identical. The cache key therefore carries a fingerprint of the return
 series; parameter equality alone must never serve a stale run.
 """
-import pytest
-
 from app.dao import portfolios as portfolio_dao
 from app.dao import prices as price_dao
 from app.dao import tickers as ticker_dao

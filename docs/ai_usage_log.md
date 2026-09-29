@@ -794,3 +794,382 @@ for most realistic long-horizon runs.
   `backend/app/services/simulation.py`, `backend/tests/test_distribution_stats.py`,
   `docs/data_methodology.md`, `frontend/src/pages/Simulator.jsx`,
   `docs/ai_usage_log.md`.
+## Stage T1 -- real-world utility: inflation & capital gains tax
+
+**Goal.** Two toggles on the Simulator ("Adjust for 3% Inflation", "Apply
+Capital Gains Tax"), two booleans on the simulate endpoint, deflation of the
+projected paths, and a tax deduction from the final simulated profit.
+
+**The spec contained one ambiguity that would have shipped a silent lie, so it
+was resolved explicitly rather than by picking a reading.** "Discount the
+projected paths by 3% annually" is unambiguous about the numerator and silent
+about the denominator. Deflating only the paths leaves `total_contributed` in
+nominal dollars, so `probability_of_profit` compares real assets against nominal
+deposits. Measured on the seeded demo data, that mistake takes the probability
+from 0.947 to **0.000** - it would have reported that every single path lost to
+inflation, on a portfolio that comfortably beat it. The book value is therefore
+deflated by the same factor, and a test pins the invariance that follows:
+`(V - C) / f` has the same sign as `V - C`, so the profit probability is exactly
+unchanged by the toggle. The same trap exists in the chart, where the
+"total contributed" line is drawn client-side from params; it now applies the
+same deflator, sourced from the run's own `stats.adjustments.inflation_rate`, so
+a nominal line never sits under a real line and implies a loss.
+
+- **T1a - tax rate is ambiguous; the user chose 15%.** "Standard long-term
+  capital gains tax" has no single value. US long-term holdings are taxed at
+  **0%** federally (the entire point of the one-year threshold), so a literal
+  reading makes the toggle a no-op and looks broken. Raised with the user rather
+  than guessed; 15% (US federal top marginal, also India's LTCG rate) was
+  selected. The constant's docstring records the 0% caveat so a future reader
+  does not "correct" it to zero.
+- **T1b - tax timing.** Also raised rather than assumed. Applied to each path's
+  final value only (a single liquidation at the end), not compounded along the
+  path, so the chart ends with a visible drop representing the final bill. The
+  alternative - taxing each year's realized gain - smooths that into a gradual
+  drag and is the better model for a rebalancing investor; left as a follow-up.
+- **T1c - engine.** New pure functions `inflation_deflator` and
+  `apply_real_world_adjustments` in `app/simulation/monte_carlo.py` (no DB or
+  network deps, matching the module's contract). Adjustments are applied to the
+  path matrix *after* the bootstrap and before anything is derived from it, so
+  the percentile bands, the summary, the stats and the chart cannot disagree
+  about which basis is in force. They deliberately do not enter the resampling:
+  deflating the returns would change the simulated distribution rather than the
+  units it is reported in.
+- **T1d - derived stats.** `compute_distribution_stats` gained an optional
+  `total_contributed` override, defaulting to the nominal book value so no
+  existing caller changed. Percentile trajectories are now recomputed from the
+  adjusted paths rather than reused from the nominal run.
+- **T1e - caching.** Both toggles were added to `canonical_params`, so flipping
+  one yields a different `params_json` and a different cached run. This has a
+  useful side effect: it makes every run cached before this feature unreachable
+  by string mismatch, which is why `STATS_VERSION` was deliberately **not**
+  bumped despite `stats` gaining an `adjustments` block. The reasoning is
+  recorded at the constant so a future change does not "fix" it into a needless
+  full-cache invalidation.
+- **T1f - frontend.** Reused the existing `ToggleSwitch` rather than adding a
+  second control; it gained an optional `icon` prop defaulting to `Sparkles`, so
+  the AI-sentiment call site is unchanged. A "Basis" disclosure strip now
+  appears above the insight cards when either toggle is on, naming the rates and
+  the median tax, because an after-tax run otherwise looks like a mysteriously
+  worse portfolio rather than the same one restated.
+- **T1g - legacy tolerance.** The `adjustments` block is defaulted field by field
+  in the UI, because runs cached before this feature have no such block.
+
+**Tests 264 -> 282.** 18 new in `tests/test_real_world_adjustments.py`:
+hand-computed deflator values, both-off exact no-op, non-mutation of the input
+array, per-column deflation, the book-value deflation and the
+probability-invariance regression guard, tax on the final column only, tax
+suppressed on non-profitable paths, the no-sign-flip property, configurable
+rate, out-of-range rate rejected, horizon/width mismatch rejected, both-toggles
+ordering (deflate then tax), a hand-computed combined figure ($100 -> $300 over
+2 years leaves $254.50), and three cache-key tests. Verified on the real HTTP
+path across all four toggle combinations: probability of profit invariant at
+0.947, inflated p50 exactly nominal/1.03^10, real book 34,228.32 = 46,000/1.03^10,
+median tax $5,987 = 15% of the median profit, and four distinct run ids.
+
+Two of my own test expectations were wrong on first run and were corrected after
+checking the arithmetic: I used 1.03**2 for a `horizon_months=2` case (that is two
+*months*, so 1.03**(2/12)), and hand-computed the combined figure as 270.06
+against the correct 254.50. Both were test-authoring errors, not code bugs.
+
+**Not visually reviewed.** The two switches, the basis strip, and the
+end-of-chart tax drop have had no browser check.
+## Stage U1 -- populate the Strategies page
+
+**Goal.** Replace the "Strategy library coming soon" placeholder with a
+responsive grid of three hardcoded strategy cards, each linking to the Simulator
+with its ETF tickers and weights pre-filled.
+
+- **U1a - the dataset constrained two of the three portfolios.** The local
+  `tickers` table has only 10 tradeable ETFs: SPY, VOO, VTI, VXUS, BND, TLT,
+  GLD, IWM, EEM, QQQ. The canonical Boglehead 3/6/10 maps exactly (VTI 54,
+  VXUS 36, BND 10). The other two do not, and silently substituting would have
+  meant simulating a different portfolio than the card is named after:
+  - All-Weather's published 30/30/20/20 uses an intermediate-bond sleeve. There
+    is no IEF or TIP, so BND stands in. Flagged on the card as an
+    approximation rather than passed off as the real split.
+  - Buffett's 90/10 is 90% S&P 500 plus 10% *short-term* Treasuries. There is no
+    SGOV or BIL. BND is the only remaining bond proxy, and it carries ~6 years
+    of duration against SGOV's ~0.1 years - a large difference in exactly the
+    risk the 10% sleeve exists to remove. Measured from the local price data,
+    BND returned **-13.33% in 2022**, the rate-rise year the sleeve was meant to
+    protect against, and the simulated 90/10 consequently shows a -14.0% median
+    max drawdown. The card states this in those terms so nobody reads the
+    backtest as validating the strategy.
+  Neither is fixable in a UI change: adding tickers means an ingest run and
+  re-freezing `deploy.db`. Raised as documented approximations instead.
+- **U1b - URL contract in one module.** The Strategies page builds the query
+  and the Simulator parses it, so `frontend/src/strategyHoldings.js` owns the
+  format, the strategy data, and a defensive parser - the same reasoning that
+  put `holdingsToFractions` in `api.js`. Shape is
+  `/simulator?holdings=VTI:54,VXUS:36,BND:10`, with weights as PERCENTS to match
+  the form, which edits percents and converts at submit. `:` and `,` are legal
+  in a query component, so the readable form decodes unchanged; verified both
+  raw and percent-encoded round-trip.
+- **U1c - fixed a latent pre-fill bug on the way through.** The existing
+  `?ticker=SPY` support was a lazy `useState` initializer, which only runs on
+  mount. Changing the query within the same route - clicking a second strategy
+  card, or browser back - left the previous holdings on screen while the URL
+  claimed otherwise. Now the initializer handles mount and a render-time
+  adjustment keyed on `search` handles in-place change. Done during render
+  rather than in an effect because oxlint's `react/set-state-in-effect` is
+  right that a synchronous setState in an effect is a cascading render; React's
+  documented pattern for state tracking a changing input is to adjust during
+  render, and nothing else on the page writes `search`, so it cannot clobber
+  in-progress edits.
+- **U1d - parser rejects rather than half-applies.** Malformed pairs are
+  dropped, and if nothing in `holdings` parses the whole value is refused so a
+  hand-edited link degrades to the default SPY portfolio instead of a
+  one-symbol form the API would reject. `?portfolio=ID` deliberately returns
+  null so the deep-link owns the form rather than racing it.
+
+**Verification.** Round-tripped every strategy through the real parser: all
+three sum to exactly 100, all symbols exist in the dataset, and
+`strategyHref` -> `queryToHoldings` is identity. Then created and simulated all
+three through the API at 10k/200mo/10y, confirming they run end-to-end and the
+stored fractions sum to exactly 1.0: Boglehead p50 67,159 (maxDD -16.0%),
+All-Weather p50 54,727 (**maxDD -9.0%**, the lowest of the three, which is the
+risk-parity shape behaving as advertised), Buffett p50 83,484 (maxDD -14.0%,
+inflated by the BND substitution above). oxlint and vite build clean. Backend
+untouched: 282 passed.
+
+**Not visually reviewed.** The three-card grid at each breakpoint, and the
+pre-fill landing in the Simulator form, have had no browser check.
+
+**Known gap, pre-existing and not introduced here.** The Simulator's holdings
+form has no running total-weight indicator, so a user who edits one pre-filled
+weight off 100 gets a 400 from the API's weight-sum check with no on-screen
+warning. The Portfolios page does have such an indicator. Worth adding.
+## Stage V1 -- wire news sentiment to the Simulator
+
+**Goal.** Add an "Apply FinBERT Sentiment" toggle to the Simulator whose effect
+on the Monte Carlo volatility is visible to the user as a small badge.
+
+**Mostly already built, so the first task was to find out what was missing.**
+The request describes a pipeline that Phase 5/6 had already delivered, so before
+writing anything I traced it end to end:
+
+| Requirement | State on arrival |
+|---|---|
+| Toggle in the Simulator controls | present ("AI Sentiment Adjustment") |
+| Score fetched from `news_sentiment` | present (`sentiment_signal.portfolio_sentiment_score`) |
+| Negative sentiment widens volatility | present (`volatility_multiplier_from_sentiment`) |
+| **Badge showing the score** | **showed the multiplier only** |
+
+Confirmed live against the real DB rather than by reading the code alone. A
+120-month run of the first portfolio: score **-0.094121** -> multiplier
+**1.009412**, matching the documented piecewise map (`1 + 0.10 * -score` for
+negative) to within 1e-6, with the percentile path differing from the
+unadjusted run and the cache correctly splitting into a distinct `run_id`. So
+the backend needed nothing; rebuilding it would have been the risk, not the
+fix.
+
+- **V1a - the badge now shows the score, not just what it did to volatility.**
+  The old chip read `sentiment x1.01`, which does not answer the only question
+  a user actually has after toggling it: which way did sentiment lean. It now
+  reads `sentiment -0.09 · vol ×1.01`, signed, because the sign is the entire
+  content of the number - a bare `0.09` is ambiguous about direction.
+
+  First attempt keyed the "no data" branch off the response's own `applied`
+  flag, which is `use_sentiment AND multiplier != 1.0`. That is wrong for a
+  genuinely neutral score: score `0.0` gives multiplier `1.0`, so a real,
+  valid input would have been reported as "no recent news". Re-keyed both
+  branches on the score being present, which is what the distinction actually
+  means. `neutral -> sentiment +0.00 · vol ×1.00` now renders correctly.
+
+- **V1b - a toggle that silently does nothing reads as broken.** When the
+  toggle is on but no scored headline falls inside the 30-day lookback, the
+  backend returns a null score and the run is unadjusted. Previously that was
+  indistinguishable from forgetting to toggle. Now the badge reads
+  `sentiment n/a · no recent news`, so the run is honestly labelled as
+  unadjusted rather than implying an adjustment happened.
+
+- **V1c - deliberate deviation from the wording of the request.** The prompt
+  says to fetch "the **latest** Aggregate Sentiment score". The shipped
+  implementation uses a 30-day lookback, weighted by holding weight, mixing
+  each holding's sector headlines with market-wide geopolitical ones. I did
+  **not** change this to the most recent headline. `docs/sentiment_validation.md`
+  measured the sentiment->forward-volatility relationship at p = 0.12-0.49
+  across SPY/QQQ - i.e. weak and mostly not significant - which is precisely
+  why the feature is built to act lightly (0.10 negative / 0.05 positive
+  sensitivity, clipped to ±10%) over an averaged window. A single latest
+  headline is one document's opinion; feeding it into a 10-year distribution
+  would manufacture a confident-looking adjustment out of noise, and it would
+  contradict the validation that motivated the small sensitivities. The
+  request's own parenthetical - "negative sentiment *slightly* increases
+  volatility" - asks for exactly the mild, aggregate effect already in place.
+  Flagging the deviation rather than silently following the literal wording.
+
+**Verification.** Captured three real API payloads - toggle off, toggle on with
+news, toggle on with `news_sentiment` emptied - and evaluated the two badge
+conditions against them: 0 badges, 1 badge, and 1 "no recent news" badge
+respectively, plus the neutral-score case. Worth noting the first fixture I
+built flattened the payload to a top-level `use_sentiment` and reported a false
+failure; the component reads `result.params.use_sentiment` and was correct. The
+fixture was wrong, and the harness caught it rather than the reverse.
+
+Backend untouched and unchanged: 282 passed, 0 failures (the two numpy
+divide-by-zero warnings are the intentional divide-by-zero test). oxlint and
+vite build clean. No frontend test runner exists in this project, so the badge
+logic was checked with node against captured payloads rather than a unit test;
+adding a runner for one formatter is not a trade worth making here.
+
+**Not visually reviewed.** The badge's appearance next to the horizon label is
+unconfirmed in a browser.
+## Stage W1 -- pre-user-study database cleanup
+
+**Goal.** Empty the Portfolios list so the user study starts from a clean slate,
+leaving the schema intact.
+
+- **W1a - "the test portfolios" was 32, not 2.** The request named "Smoke 10y"
+  and "Phase6 check", but the table held 32 rows: 2x Smoke 10y, 1x Phase6
+  check, and **29x "My Portfolio"** - the API's default name, one holding, $200/mo,
+  which is what repeated curl/smoke checks leave behind. Wiping only the two
+  named ones would have left 29 identical rows in front of study participants,
+  so the default scope is all portfolios, with `--name` available for a
+  surgical delete.
+
+- **W1b - the deployed database was dirty too.** `simulator.db` had 32
+  portfolios, but `deploy.db` - the frozen snapshot the Docker image ships -
+  had 24 more. A study run against the container would never have seen the
+  local cleanup at all. Both were cleaned. Worth remembering that
+  `prepare_deploy_db.py` copies simulator.db -> deploy.db, so if a study DB is
+  ever rebuilt from a clean source it will be clean, but an existing deploy.db
+  has to be cleaned separately.
+
+- **W1c - reused the app's own delete path instead of writing DELETE
+  statements.** `simulation_runs` references `portfolios(id)` with **no ON
+  DELETE CASCADE**, so deleting a portfolio with child rows fails outright
+  under FK enforcement, and the correct order (simulation_results ->
+  simulation_runs -> portfolio_holdings -> portfolios) lives in
+  `app.dao.portfolios.delete_portfolio`. Hand-rolling the SQL would create a
+  second copy of that ordering to keep in sync. The script opens its own
+  connection with `PRAGMA foreign_keys = ON` to match `database.get_connection`;
+  without it the dependency order is never actually checked by the FK engine,
+  so a bug in it would pass silently.
+
+- **W1d - guards, because this deletes data.** Dry run is the default and
+  `--apply` is required. A timestamped backup is taken first, WAL-checkpointed
+  so committed rows still sitting in `simulator.db-wal` end up in the copy - the
+  dev database runs in WAL mode, and copying the main file alone would produce
+  a backup that silently restores stale data. The whole delete is one
+  transaction, and the script compares every table's CREATE statement before
+  and after, rolling back and exiting non-zero if the schema moved. `--name`
+  is escaped for LIKE wildcards, so `--name "%"` matches nothing rather than
+  everything.
+
+- **W1e - the backup filename had to be designed.** First version wrote
+  `simulator.db.bak-<stamp>`, which does **not** match the `*.db` rule in
+  .gitignore - the backup showed up as an untracked 8 MB file, one `git add -A`
+  from being committed. Backups are now `<stem>.bak-<stamp>.db` so the existing
+  rule covers them with no new pattern to forget.
+
+**Result.** simulator.db and deploy.db both at 0 portfolios; cascade removed 37
+holdings / 37 runs / 111 results and 27 / 23 / 69 respectively. Untouched, as
+the study needs them: prices (106,251 rows), tickers (13), users (1),
+news_sentiment (594). Schema byte-identical before and after. Verified through
+the API rather than by trusting the SQL: `GET /portfolios` returns `[]`, a
+create returns `id=1` (counter reset), and that portfolio deletes cleanly with
+204. Backups retained as `simulator.bak-20260926-182435.db` and
+`deploy.bak-20260926-182436.db`. 282 passed, 0 failures.
+
+## Why the ETF screener lists ^DJI, ^GSPC and ^IXIC
+
+Reported as a question, and the data is correct - the *display* was not.
+`^DJI` (Dow Jones Industrial Average), `^GSPC` (S&P 500) and `^IXIC` (NASDAQ
+Composite) are **market indices, not ETFs**. The `^` is Yahoo Finance's
+convention for index symbols, documented in `app/ticker_catalog.py`: "yfinance
+tickers (indices use the caret prefix, e.g. ^GSPC)". They are in the catalog
+deliberately, with `sector = "Index - ..."`, and they are load-bearing:
+
+- `app/services/news_sources.py` keys the geopolitical/macro Google News
+  searches off those three symbols, which is where the market-wide sentiment
+  rows that feed the Simulator's FinBERT adjustment come from.
+- Their price history (8,741 / 24,797 / 14,023 rows) backs the benchmark
+  comparisons.
+
+`/screener` returns all 13 stored tickers by design -
+`test_screener_returns_stored_tickers_only` pins that. So the backend is
+correct and the bug was purely presentational: a page titled "ETF Screener" was
+listing three things you cannot buy.
+
+Fixed in the UI rather than the API, since other consumers may legitimately
+want the indices. Keyed on the catalog's own `sector` classification
+("Index - ...") instead of the `^` prefix, so the frontend follows the data's
+stated asset type rather than encoding Yahoo's ticker convention - a future
+non-Yahoo index source would classify itself in `sector` and be filtered
+automatically. The screener drops from 13 rows to the 10 real ETFs; the "10
+tracked" chip counts the filtered set, not the raw response, so the header
+number cannot disagree with the table. Nothing was deleted. oxlint and vite
+build clean; 282 backend tests unaffected.
+
+### W2 - removed the redundant page subheadings
+
+Reported as unwanted: "people know what an ETF screener is", and the nav
+already names every page, so the `<h1>` + one-sentence description on each page
+was restating the tab the user had just clicked. Removed from ETFs, News,
+Portfolios, Simulator and Investing Strategies, leaving each page to open
+straight onto its content.
+
+Kept deliberately:
+
+- `Home.jsx`'s `<h1>` is `sr-only` - invisible, and screen readers need exactly
+  one top-level heading per page for orientation.
+- `NotFound.jsx`'s `<h1>` *is* the content ("404 - Page not found"), not a label
+  for content that follows.
+- In-content prose: the "No portfolios yet" and "No portfolio yet" empty states,
+  the legacy-run notice, and the strategy caveats. These describe an actual
+  state or a data limitation, which is a different thing from labelling the
+  page.
+
+One real bug fixed alongside: the header chip counted `rows.length` (13) while
+the table rendered 10, so "13 tracked" sat directly above ten rows. The filter
+had introduced that inconsistency; the chip now counts `etfRows`.
+
+Deleting the subheadings left their wrappers behind, which reserved a blank
+1rem slot: the parent is `space-y-4`, and that margin is applied to every child
+including one that renders nothing. Two pages were affected.
+
+- `FinancialNews.jsx` always rendered its header row, so the row was empty
+  while loading or on error and the filter bar below was pushed down. The
+  "N headlines / Nd window" chip is now the middle child of the existing filter
+  row (category tabs | chip | day options) instead of a row of its own, which
+  removes the gap rather than just hiding it.
+- `Portfolios.jsx` had the same shape, gated on `!editsForm`: opening the form
+  emptied the row and left a gap above it. The whole row is now inside the
+  condition, so it is absent rather than present-and-blank.
+
+The Etfs chip row was already conditional, so it never reserved an empty slot
+and was left as a single right-aligned row. Simulator and Investing Strategies
+had no wrapper left over - the removed `<div>`'s only child - so their content
+was already flush to the top.
+
+### W3 - realized monthly returns now respect the horizon filter
+
+Reported as a flaw: the "Realized monthly returns" heatmap ignored the year
+entered in Controls. `GET /portfolios/{id}/monthly-returns` returns the entire
+price history, and the client built a row per year from all of it, so the
+heatmap grew every year the snapshot aged - 16 stacked rows for a 2011-start
+holding, regardless of what the user set. The endpoint takes no parameters, so
+nothing constrained it.
+
+`horizonYears` (Investment horizon, 1-50, default 10) is now applied on the
+client: the heatmap shows the trailing `horizonYears` calendar years. Filtering
+client-side rather than adding a query parameter keeps the API contract stable
+and means dragging the slider updates the heatmap with no refetch - the fetch
+effect only depends on `portfolioId` and `phase`, so it does not re-run.
+
+The window is anchored on the newest year **present in the data**, not on
+today. The snapshot is frozen (it ends 2026-09), so anchoring to the current
+date would render a column of empty cells whenever the data lags. Anchoring on
+the data's own maximum guarantees at least one populated row and never pads
+with blanks. When the horizon exceeds the available history it clamps to what
+exists rather than inventing rows.
+
+Verified against the real endpoint for a 60/30/10 VTI/VXUS/BND holding: 188
+months spanning 2011-2026. Horizon 1 -> 1 row (2026), 2 -> 2, 3 -> 3, 5 -> 5,
+10 -> 10 (2017-2026), and 20/50 -> all 16. Null and empty payloads yield no rows
+and no crash. The applied window is now printed in the panel title ("2017-2026
+· 10 yr") so the limit is visible rather than silently truncating history. The
+incomplete current year keeps its empty trailing months, which is honest - the
+months have not happened yet. oxlint and vite build clean.

@@ -208,10 +208,6 @@ def macro_sources_windowed(
     return sources
 
 
-def all_sources() -> list[NewsSource]:
-    return sector_sources() + macro_sources()
-
-
 def google_news_rss(
     query: str,
     lang: str = "en-US",
@@ -247,6 +243,5 @@ __all__ = [
     "sector_sources_windowed",
     "macro_sources",
     "macro_sources_windowed",
-    "all_sources",
     "google_news_rss",
 ]

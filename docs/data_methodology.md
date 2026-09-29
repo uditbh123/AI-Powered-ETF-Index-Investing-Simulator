@@ -207,6 +207,7 @@ Every simulation response now carries a `stats` object summarizing the full
 | `median_max_drawdown` | Median over paths of each path's peak-to-end drawdown `value/cummax − 1`. |
 | `upside_downside_ratio` | Sortino-family ratio on **monthly simple returns**, threshold 0: mean of positive months ÷ root-mean-square of negative months. `null` only when no month is negative. |
 | `histogram` | 20 equal-width bins of final values: `bin_edges` (21) + `counts` (20). |
+| `adjustments` | Which real-world basis is in force, plus the deflated book value and the tax actually charged (see below). Persisted with the rest of the stats so a cached run replays the same disclosure. |
 
 **Drawdown caveat.** `median_max_drawdown` is measured on the *portfolio*
 trajectory, which includes contributions. Each deposit raises the running peak
@@ -230,3 +231,59 @@ rather than NaN. Cached runs store their stats verbatim, so
 `STATS_VERSION` in `app/services/simulation.py` is folded into the run cache
 key; bump it whenever a stat's definition changes, or previously cached runs
 will keep replaying the old number.
+
+## Real-world adjustments (tax & inflation)
+
+_Source: `inflation_deflator` and `apply_real_world_adjustments` in
+`app/simulation/monte_carlo.py`, applied in `run_portfolio_simulation` after the
+Monte Carlo draw. Rates are module constants (`INFLATION_ANNUAL_RATE = 0.03`,
+`CAPITAL_GAINS_TAX_RATE = 0.15`), not client-supplied, so the endpoint cannot
+be used to post arbitrary figures._
+
+Two independent run-time switches, both part of the cache key
+(`canonical_params`), so a run computed on one basis is never served to a
+request that asked for another.
+
+**Inflation — `adjust_for_inflation`.** Every path point `t` is divided by
+`(1 + 0.03) ** (t / 12)`, restating the nominal simulation in today's purchasing
+power. Index 0 is never deflated, so the initial balance is untouched.
+
+The book value is deflated by the **same** factor at the horizon. This is the
+part that is easy to get wrong: discounting only the paths would leave
+`total_contributed` in nominal dollars, so `probability_of_profit` would compare
+real assets against nominal deposits. Measured on the seeded demo data, that
+mistake drives the probability from **0.947 to 0.000** — it would report that
+every path lost to inflation, when the paths actually beat it. The question a
+real investor asks is "did I beat inflation", which requires both sides in the
+same units. Consequently `probability_of_profit` is **exactly invariant** under
+this toggle, since `(V − C) / f` has the same sign as `V − C`.
+
+**Capital gains tax — `apply_capital_gains_tax`.** Charged once, on each path's
+final profit, and only when that profit is positive; a loss produces no tax
+credit in this model. At 15% on the default 10-year run this is a median
+$5,987 across 1,000 paths, with 95% of paths taxable. It is applied *after*
+deflation, matching the order the feature is specified in.
+
+Two consequences worth stating:
+
+- A flat rate below 100% scales profit but can never invert its sign, so
+  `probability_of_profit` is also invariant under this toggle. A path that ended
+  above its book value still does after tax; it just ends lower.
+- The tax is deliberately **not** compounded along the path. The model assumes a
+  single liquidation at the end of the horizon, so the chart ends with a visible
+  drop representing the final bill, rather than a smooth annual drag.
+- The nominal 15% rate is applied to a real (deflated) profit when both toggles
+  are on. The strictly consistent real rate would be
+  `(1 + tax) / (1 + inflation) − 1` (≈11.7% rather than 15% at these settings).
+  That refinement is skipped on purpose, so the figure the user selects is the
+  figure that is applied.
+
+**Not modelled.** Dividends and their taxation, short-term vs long-term holding
+periods per path, the 0%/15%/20% bracket the actual rate depends on, state
+taxes, and the wash-sale rule. Tax is charged on the whole path's gain
+regardless of how long any individual path was held.
+
+**Caveat on drawdowns.** Deflation is not drawdown-neutral: dividing successive
+points by a growing factor changes measured drawdowns. That is intentional — a
+real drawdown is the one an investor would feel — but it means
+`median_max_drawdown` is not comparable between an inflated and a nominal run.

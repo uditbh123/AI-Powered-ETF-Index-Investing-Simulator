@@ -1,8 +1,6 @@
 """Connection-factory tests: per-connection PRAGMAs are applied every time."""
 import sqlite3
 
-import pytest
-
 from app.config import settings
 from app.database import ensure_column, get_connection, init_db
 

@@ -15,8 +15,11 @@ changes into a commit.
 ## Commands
 
 - Backend suite: from `backend/` run `python -m pytest` (dev venv `.venv`, or
-  install `requirements-dev.txt`). Expected: 264 passing.
-- Lint/typecheck: frontend `npm run lint` (oxlint) — backend has no linter.
+  install `requirements-dev.txt`). Expected: 300 passing.
+- Lint/typecheck: frontend `npm run lint` (oxlint). The backend has no linter
+  in CI, but `python -m ruff check app tests scripts --select F` is clean and
+  worth keeping clean — it is what catches the unused imports that accumulate in
+  test modules.
 - Frontend build: `npm run build`.
 - Ingest CLI: `backend` → `python -m app.scripts.ingest` (dev only).
 

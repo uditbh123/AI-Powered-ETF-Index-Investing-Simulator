@@ -17,7 +17,6 @@ from app.dao import prices as price_dao
 from app.dao import tickers as ticker_dao
 from app.scripts.validate_sentiment import (
     analyze_ticker,
-    daily_returns,
     forward_vol,
     realized_vol,
     render_report,
