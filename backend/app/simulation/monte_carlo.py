@@ -33,6 +33,18 @@ POSITIVE_SENTIMENT_SENSITIVITY = 0.05
 MIN_VOLATILITY_MULTIPLIER = 0.9
 MAX_VOLATILITY_MULTIPLIER = 1.1
 
+# --- Real-world adjustments (tax & inflation) --------------------------------
+# Annual CPI-style inflation used by the "Adjust for 3% Inflation" toggle.
+INFLATION_ANNUAL_RATE = 0.03
+
+# "Standard long-term capital gains tax". NOTE this is the US federal *top
+# marginal* rate, not the base rate: US long-term holdings are taxed at 0%
+# federally, and qualified dividends/LTCGs are taxed at preferential 0/15/20%
+# rates. Using the literal 0% would make the toggle a no-op, so this models the
+# rate a high-income investor actually faces. Override via `tax_rate` if a
+# different jurisdiction is wanted.
+CAPITAL_GAINS_TAX_RATE = 0.15
+
 
 def returns_from_prices(prices: Sequence[float]) -> np.ndarray:
     """Convert a series of prices/closes into period-over-period returns."""
@@ -123,6 +135,7 @@ def _draw_returns(
     return flat[:, :n_steps]
 
 
+
 def simulate_paths(
     returns: Sequence[float],
     initial_balance: float,
@@ -174,6 +187,116 @@ def simulate_paths(
     return np.concatenate([start, values], axis=1)
 
 
+def inflation_deflator(
+    horizon_months: int,
+    inflation_rate: float = INFLATION_ANNUAL_RATE,
+) -> np.ndarray:
+    """Per-month deflator factors of length ``horizon_months + 1``.
+
+    ``factor[t] = (1 + inflation_rate) ** (t / 12)``, the number of nominal
+    dollars equivalent to one unit of purchasing power at step ``t``. Index 0 is
+    always 1.0, so deflating never touches the initial balance.
+    """
+    if horizon_months < 1:
+        raise ValueError("horizon_months must be >= 1")
+    if inflation_rate < 0:
+        raise ValueError("inflation_rate must be >= 0")
+    steps = np.arange(horizon_months + 1, dtype=float) / 12.0
+    return np.power(1.0 + float(inflation_rate), steps)
+
+
+def apply_real_world_adjustments(
+    paths: np.ndarray,
+    initial_balance: float,
+    monthly_contribution: float = 0.0,
+    horizon_months: int = 120,
+    adjust_for_inflation: bool = False,
+    apply_capital_gains_tax: bool = False,
+    inflation_rate: float = INFLATION_ANNUAL_RATE,
+    tax_rate: float = CAPITAL_GAINS_TAX_RATE,
+) -> tuple[np.ndarray, dict]:
+    """Apply inflation and capital-gains-tax adjustments to simulated paths.
+
+    Returns ``(adjusted_paths, breakdown)``. With both toggles off this is a
+    no-op that returns a copy of the input, so callers can invoke it
+    unconditionally.
+
+    **Inflation** divides every path point by its deflator, converting the
+    nominal simulation into today's purchasing power. The book value is
+    deflated by the *same* factor at the horizon. This is the part that is easy
+    to get wrong: discounting only the paths would leave ``total_contributed``
+    in nominal dollars, so ``probability_of_profit`` would compare real assets
+    against nominal deposits and report a loss for almost any run. The question
+    a real investor asks is "did I beat inflation", which requires both sides in
+    the same units.
+
+    **Capital gains tax** is charged once, on the final profit of each path
+    (nominal or real, depending on the inflation toggle), and only when that
+    profit is positive - a loss generates no tax credit here. It is applied
+    *after* deflation, matching the order the feature is specified in. The tax
+    is deliberately not compounded along the path: the model assumes a single
+    liquidation at the end of the horizon, so the chart ends with a visible drop
+    representing the final bill.
+
+    The nominal ``tax_rate`` is applied to a real (inflation-adjusted) profit
+    when both toggles are on. The strictly consistent real rate would be
+    ``(1 + tax_rate) / (1 + inflation_rate) - 1`` (~11.7% rather than 15% at
+    these settings); that refinement is skipped deliberately so the figure the
+    user selects is the figure that is applied.
+
+    Note that deflation is *not* drawdown-neutral: dividing successive points by
+    a growing factor changes measured drawdowns, which is correct (a real
+    drawdown is the one an investor would actually feel).
+    """
+    paths = np.asarray(paths, dtype=float)
+    if paths.ndim != 2:
+        raise ValueError(f"Expected a 2-D paths matrix, got shape {paths.shape}")
+    if initial_balance < 0:
+        raise ValueError("initial_balance must be >= 0")
+    if monthly_contribution < 0:
+        raise ValueError("monthly_contribution must be >= 0")
+    if horizon_months < 1:
+        raise ValueError("horizon_months must be >= 1")
+    if not 0.0 <= tax_rate <= 1.0:
+        raise ValueError("tax_rate must be between 0 and 1")
+    if paths.shape[1] != horizon_months + 1:
+        raise ValueError(
+            f"paths has {paths.shape[1]} steps, expected {horizon_months + 1} "
+            f"for horizon_months={horizon_months}"
+        )
+
+    nominal_contributed = float(initial_balance) + float(monthly_contribution) * horizon_months
+
+    if adjust_for_inflation:
+        deflator = inflation_deflator(horizon_months, inflation_rate)
+        adjusted = paths / deflator[None, :]
+        total_contributed = nominal_contributed / float(deflator[-1])
+    else:
+        adjusted = paths.copy()
+        total_contributed = nominal_contributed
+
+    final_profit = adjusted[:, -1] - total_contributed
+    taxable = final_profit > 0.0
+    if apply_capital_gains_tax:
+        tax = np.where(taxable, final_profit * tax_rate, 0.0)
+        adjusted[:, -1] -= tax
+    else:
+        tax = np.zeros(paths.shape[0], dtype=float)
+
+    breakdown = {
+        "inflation_adjusted": bool(adjust_for_inflation),
+        "inflation_rate": float(inflation_rate) if adjust_for_inflation else 0.0,
+        "capital_gains_tax_applied": bool(apply_capital_gains_tax),
+        "capital_gains_tax_rate": float(tax_rate) if apply_capital_gains_tax else 0.0,
+        "total_contributed": float(total_contributed),
+        "nominal_total_contributed": float(nominal_contributed),
+        "mean_capital_gains_tax": float(tax.mean()),
+        "median_capital_gains_tax": float(np.median(tax)),
+        "taxable_fraction_of_paths": float(np.mean(taxable)),
+    }
+    return adjusted, breakdown
+
+
 def path_percentiles(
     paths: np.ndarray,
     levels: Sequence[float] = DEFAULT_PERCENTILES,
@@ -194,6 +317,7 @@ def compute_distribution_stats(
     initial_balance: float,
     monthly_contribution: float = 0.0,
     horizon_months: int = 120,
+    total_contributed: float | None = None,
 ) -> dict:
     """Summarize a simulated final-value distribution into actionable stats.
 
@@ -202,6 +326,14 @@ def compute_distribution_stats(
     balance plus all monthly contributions) and is the baseline
     ``probability_of_profit`` is measured against: the fraction of paths that
     end above it.
+
+    ``total_contributed`` defaults to the nominal book value
+    ``initial_balance + monthly_contribution * horizon_months``. Pass it
+    explicitly when the paths have been put in different units than the
+    contributions - specifically the deflated book value from
+    :func:`apply_real_world_adjustments`, so the baseline stays consistent with
+    inflation-adjusted paths. Ignoring this is what would make
+    ``probability_of_profit`` collapse toward zero.
 
     ``upside_downside_ratio`` is the Sortino-family ratio computed on *monthly
     simple returns* with a zero threshold: mean of the positive months divided
@@ -236,7 +368,12 @@ def compute_distribution_stats(
     if horizon_months < 1:
         raise ValueError("horizon_months must be >= 1")
 
-    total_contributed = float(initial_balance) + float(monthly_contribution) * horizon_months
+    if total_contributed is None:
+        total_contributed = float(initial_balance) + float(monthly_contribution) * horizon_months
+    else:
+        total_contributed = float(total_contributed)
+        if total_contributed < 0:
+            raise ValueError("total_contributed must be >= 0")
 
     finals = paths[:, -1]
 
@@ -341,7 +478,6 @@ def validate_bootstrap(
         raise ValueError("tolerance must be between 0 and 1")
 
     returns = np.asarray(returns, dtype=float)
-    periods = np.arange(1, horizon_months + 1)
     hist_arith_mean = float(np.mean(returns))
     hist_std = float(np.std(returns, ddof=1))
     hist_geom_mean = float(np.exp(np.mean(np.log1p(returns))) - 1.0) if np.all(returns > -1.0) else None
@@ -431,6 +567,8 @@ __all__ = [
     "volatility_multiplier_from_sentiment",
     "scale_returns_volatility",
     "simulate_paths",
+    "inflation_deflator",
+    "apply_real_world_adjustments",
     "path_percentiles",
     "compute_distribution_stats",
     "validate_bootstrap",
@@ -441,4 +579,6 @@ __all__ = [
     "POSITIVE_SENTIMENT_SENSITIVITY",
     "MIN_VOLATILITY_MULTIPLIER",
     "MAX_VOLATILITY_MULTIPLIER",
+    "INFLATION_ANNUAL_RATE",
+    "CAPITAL_GAINS_TAX_RATE",
 ]

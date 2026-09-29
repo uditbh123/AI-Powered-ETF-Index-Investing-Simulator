@@ -218,6 +218,12 @@ class SimulationRequest(BaseModel):
     seed: int | None = Field(default=None, ge=0)
     blocks: int | None = Field(default=None, ge=1, le=MAX_BLOCK_MONTHS)
     use_sentiment: bool = False
+    # Real-world basis switches. Both change the reported numbers, so both are
+    # part of the cache key (see services.simulation.canonical_params). Rates
+    # live in app.simulation.monte_carlo as module constants rather than being
+    # client-supplied, so the endpoint cannot be used to post arbitrary figures.
+    adjust_for_inflation: bool = False
+    apply_capital_gains_tax: bool = False
 
     @model_validator(mode="after")
     def _check_workload(self) -> "SimulationRequest":

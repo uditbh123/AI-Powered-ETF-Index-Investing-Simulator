@@ -27,6 +27,13 @@ from . import sentiment_signal
 # old number forever. v2 changed `upside_downside_ratio` from a final-value
 # percentile ratio to a monthly-return ratio; without this bump, every run
 # cached before that change would keep reporting the old `null`.
+#
+# v3 added the `adjustments` block to `stats` for the tax/inflation feature but
+# deliberately did NOT bump this constant: `adjust_for_inflation` and
+# `apply_capital_gains_tax` are part of `canonical_params`, so their addition
+# changed every `params_json` string and made all previously cached runs
+# unreachable. The schema change is therefore already self-invalidating. Bump
+# this only for a change that alters a stat's meaning without altering params.
 STATS_VERSION = 2
 
 
@@ -117,12 +124,21 @@ def canonical_params(
     use_sentiment: bool = False,
     volatility_multiplier: float = 1.0,
     sentiment_score: float | None = None,
+    adjust_for_inflation: bool = False,
+    apply_capital_gains_tax: bool = False,
 ) -> dict[str, Any]:
     """Ordering-independent parameter key used for result caching.
 
     The sentiment fields are part of the key so a run is only reused while the
     sentiment it was built from is unchanged; a fresh news batch produces a new
     volatility multiplier and therefore a new run.
+
+    The tax/inflation toggles are in the key because they change the numbers,
+    not just the presentation: a run computed with deflation must never be
+    served to a request that did not ask for it. Their presence here also means
+    every run cached before this feature has a different ``params_json`` and is
+    therefore unreachable, which is why ``STATS_VERSION`` does not need bumping
+    for the ``adjustments`` block that ``stats`` now carries.
     """
     return {
         "initial_balance": float(initial_balance),
@@ -136,6 +152,8 @@ def canonical_params(
         "sentiment_score": (
             None if sentiment_score is None else round(float(sentiment_score), 6)
         ),
+        "adjust_for_inflation": bool(adjust_for_inflation),
+        "apply_capital_gains_tax": bool(apply_capital_gains_tax),
     }
 
 
@@ -150,6 +168,9 @@ def _rounded_stats(stats: dict[str, Any]) -> dict[str, Any]:
     def _two(v: float | None) -> float | None:
         return None if v is None else round(float(v), 2)
 
+    def _four(v: float | None) -> float | None:
+        return None if v is None else round(float(v), 4)
+
     return {
         "total_contributed": round(float(stats["total_contributed"]), 2),
         "probability_of_profit": round(float(stats["probability_of_profit"]), 4),
@@ -157,16 +178,19 @@ def _rounded_stats(stats: dict[str, Any]) -> dict[str, Any]:
             k: _two(v) for k, v in stats["final_percentiles"].items()
         },
         "median_max_drawdown": _two(stats["median_max_drawdown"]),
-        "upside_downside_ratio": (
-            None
-            if stats["upside_downside_ratio"] is None
-            else round(float(stats["upside_downside_ratio"]), 4)
-        ),
+        "upside_downside_ratio": _four(stats["upside_downside_ratio"]),
         "histogram": {
             "bin_edges": [
                 round(float(e), 2) for e in stats["histogram"]["bin_edges"]
             ],
             "counts": list(stats["histogram"]["counts"]),
+        },
+        # Persisted with the rest of the stats so a cached run replays the same
+        # tax/inflation disclosure the fresh run produced, rather than making
+        # the UI infer the toggles from params.
+        "adjustments": {
+            k: (_four(v) if isinstance(v, float) else v)
+            for k, v in stats["adjustments"].items()
         },
     }
 
@@ -226,6 +250,8 @@ def run_portfolio_simulation(
     blocks: int | None = None,
     seed: int | None = None,
     use_sentiment: bool = False,
+    adjust_for_inflation: bool = False,
+    apply_capital_gains_tax: bool = False,
 ) -> dict[str, Any]:
     """Run (or fetch a cached) simulation for a portfolio. Raises ValueError.
 
@@ -233,6 +259,14 @@ def run_portfolio_simulation(
     keyed by the contribution actually used. When ``use_sentiment`` is set, the
     recent sector + geopolitical news sentiment is aggregated into a score and
     mapped to a volatility multiplier applied to the historical returns.
+
+    ``adjust_for_inflation`` and ``apply_capital_gains_tax`` are applied to the
+    simulated paths *after* the Monte Carlo draw, via
+    ``monte_carlo.apply_real_world_adjustments``. Percentile trajectories and
+    every distribution stat are then derived from the adjusted paths, so the
+    chart, the summary and the stats can never disagree about which basis is in
+    use. They do not enter the bootstrap: deflating the returns instead would
+    change the resampled distribution, not just the units it is reported in.
     """
     portfolio = portfolio_dao.get_portfolio(conn, portfolio_id)
     if portfolio is None:
@@ -262,6 +296,8 @@ def run_portfolio_simulation(
         use_sentiment=use_sentiment,
         volatility_multiplier=volatility_multiplier,
         sentiment_score=sentiment_score,
+        adjust_for_inflation=adjust_for_inflation,
+        apply_capital_gains_tax=apply_capital_gains_tax,
     )
 
     # The cached results are derived from the stored prices, which the daily
@@ -294,7 +330,11 @@ def run_portfolio_simulation(
             stats=_stats_from_run(cached_run),
         )
 
-    result = monte_carlo.run_simulation(
+    # simulate_paths + path_percentiles rather than run_simulation: the bands
+    # this entry point used to compute were discarded, because the tax/inflation
+    # adjustments below invalidate them and the percentiles are recomputed from
+    # the adjusted paths. That wasted pass was 18-35% of the run.
+    paths = monte_carlo.simulate_paths(
         returns,
         initial_balance=initial_balance,
         monthly_contribution=monthly_contribution,
@@ -304,18 +344,33 @@ def run_portfolio_simulation(
         seed=seed,
         volatility_multiplier=volatility_multiplier,
     )
+    levels_list = list(monte_carlo.DEFAULT_PERCENTILES)
 
-    stats = monte_carlo.compute_distribution_stats(
-        result["paths"],
+    # Adjustments happen before anything is derived from the paths, so the
+    # percentiles, the summary, the stats and the chart are all on one basis.
+    paths, adjustments = monte_carlo.apply_real_world_adjustments(
+        paths,
         initial_balance=initial_balance,
         monthly_contribution=monthly_contribution,
         horizon_months=horizon_months,
+        adjust_for_inflation=adjust_for_inflation,
+        apply_capital_gains_tax=apply_capital_gains_tax,
     )
+
+    stats = monte_carlo.compute_distribution_stats(
+        paths,
+        initial_balance=initial_balance,
+        monthly_contribution=monthly_contribution,
+        horizon_months=horizon_months,
+        total_contributed=adjustments["total_contributed"],
+    )
+    stats["adjustments"] = adjustments
     stats_json = json.dumps(_rounded_stats(stats), sort_keys=True)
     run_id = simulation_dao.create_run(conn, portfolio_id, params_json, stats_json=stats_json)
-    levels_list = result["percentile_levels"]
+    # Recomputed from the adjusted paths, not reused from the nominal run.
     trajectories = [
-        [round(float(x), 2) for x in path] for path in result["percentiles"]
+        [round(float(x), 2) for x in path]
+        for path in monte_carlo.path_percentiles(paths, levels=levels_list)
     ]
     simulation_dao.save_results(
         conn, run_id, zip(levels_list, (json.dumps(p) for p in trajectories))

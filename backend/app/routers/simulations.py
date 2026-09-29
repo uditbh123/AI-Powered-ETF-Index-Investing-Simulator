@@ -34,6 +34,8 @@ def trigger_simulation(
             blocks=request.blocks,
             seed=request.seed,
             use_sentiment=request.use_sentiment,
+            adjust_for_inflation=request.adjust_for_inflation,
+            apply_capital_gains_tax=request.apply_capital_gains_tax,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
