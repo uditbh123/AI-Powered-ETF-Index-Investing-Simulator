@@ -15,6 +15,7 @@ import {
   Calculator,
   Gauge,
   History,
+  Landmark,
   Percent,
   Play,
   Plus,
@@ -26,6 +27,7 @@ import {
   Wallet,
 } from 'lucide-react'
 import { fetchJSON, fractionToPercentInput, holdingsToFractions } from '../api'
+import { queryToHoldings } from '../strategyHoldings'
 import { usePageTitle } from '../hooks/usePageTitle'
 
 const DEFAULT_HOLDINGS = [{ symbol: 'SPY', weight: 100 }]
@@ -46,6 +48,17 @@ function formatCurrency(value) {
     currency: 'USD',
     maximumFractionDigits: 0,
   })
+}
+
+/**
+ * Aggregate sentiment lives in [-1, 1] and its sign is the whole point, so it
+ * always carries an explicit sign: a bare "0.09" next to a volatility
+ * multiplier does not say whether sentiment was positive or negative.
+ */
+function formatSentiment(score) {
+  if (typeof score !== 'number' || !Number.isFinite(score)) return 'n/a'
+  const sign = score < 0 ? '\u2212' : '+'
+  return `${sign}${Math.abs(score).toFixed(2)}`
 }
 
 function formatReturn(value) {
@@ -159,7 +172,7 @@ function TrajectoryTooltip({ active, payload }) {
   )
 }
 
-function ToggleSwitch({ checked, onChange, title, subtitle }) {
+function ToggleSwitch({ checked, onChange, title, subtitle, icon: Icon = Sparkles }) {
   return (
     <button
       type="button"
@@ -170,7 +183,7 @@ function ToggleSwitch({ checked, onChange, title, subtitle }) {
     >
       <span className="min-w-0">
         <span className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-widest text-ink-soft">
-          <Sparkles
+          <Icon
             size={11}
             strokeWidth={1.8}
             className={checked ? 'text-accent' : 'text-ink-dim'}
@@ -209,11 +222,26 @@ export default function Simulator() {
   const [contribution, setContribution] = useState(200)
   const [initialBalance, setInitialBalance] = useState(10000)
   const [horizonYears, setHorizonYears] = useState(10)
-  const [holdings, setHoldings] = useState(() => {
-    const preSelected = new URLSearchParams(search).get('ticker')
-    return preSelected ? [{ symbol: preSelected, weight: 100 }] : DEFAULT_HOLDINGS
-  })
+  // Pre-filled from the query string: /simulator?holdings=VTI:54,VXUS:36,BND:10
+  // from a Strategies card, or the older /simulator?ticker=SPY from an ETF row.
+  const [holdings, setHoldings] = useState(() => queryToHoldings(search) ?? DEFAULT_HOLDINGS)
+  // The search string the form currently reflects, so a change *within* the same
+  // route re-fills the form. A lazy initializer alone only runs on mount, so
+  // clicking a second strategy card (or using browser back) would leave the
+  // previous holdings on screen while the URL claimed otherwise. Adjusting
+  // during render rather than in an effect follows React's guidance for state
+  // that tracks a changing input, and avoids a cascading extra render.
+  const [appliedSearch, setAppliedSearch] = useState(search)
+  if (search !== appliedSearch) {
+    setAppliedSearch(search)
+    // A search with no pre-fill (e.g. ?portfolio=ID) must leave the form alone
+    // so the portfolio deep-link below can populate it instead.
+    const prefill = queryToHoldings(search)
+    if (prefill) setHoldings(prefill)
+  }
   const [useSentiment, setUseSentiment] = useState(false)
+  const [adjustForInflation, setAdjustForInflation] = useState(false)
+  const [applyCapitalGainsTax, setApplyCapitalGainsTax] = useState(false)
 
   const [phase, setPhase] = useState('idle') // idle | running | done
   const [result, setResult] = useState(null)
@@ -341,6 +369,8 @@ export default function Simulator() {
           initial_balance: Number(initialBalance),
           horizon_months: Number(horizonYears) * 12,
           use_sentiment: useSentiment,
+          adjust_for_inflation: adjustForInflation,
+          apply_capital_gains_tax: applyCapitalGainsTax,
         }),
       })
       setResult(sim)
@@ -467,12 +497,36 @@ export default function Simulator() {
   // why the run's own params are used rather than the live form state - the
   // form may have been edited since the run was made, and a loaded portfolio
   // carries its own monthly_contribution (which is not the slider's value).
+  //
+  // The book-value line must be deflated by the same factor as the paths when
+  // the inflation toggle is on. Leaving it nominal would draw a rising nominal
+  // line under a falling real line and imply the portfolio lost to inflation
+  // when it did not - the same units mismatch the backend avoids by deflating
+  // its own total_contributed. The rate is 0 when the toggle is off, and 0 is
+  // also the fallback for legacy cached runs that predate the `adjustments`
+  // block, so this is a no-op in both cases.
+  // The `adjustments` block is persisted with the run's stats so a cached run
+  // replays the same disclosure a fresh one produced. Defaulted here because
+  // runs cached before this feature have no such block; every field is read
+  // with a fallback rather than assuming the shape exists.
+  const adjustments = {
+    inflation_adjusted: false,
+    inflation_rate: 0,
+    capital_gains_tax_applied: false,
+    capital_gains_tax_rate: 0,
+    median_capital_gains_tax: 0,
+    taxable_fraction_of_paths: 0,
+    ...(result?.stats?.adjustments ?? {}),
+  }
+
+  const inflationRate = Number(adjustments.inflation_rate ?? 0)
   const trajectoryData = result?.params
     ? chartData.map((row) => ({
         ...row,
         contributed: Math.round(
-          Number(result.params.initial_balance ?? 0) +
-            Number(result.params.monthly_contribution ?? 0) * row.month,
+          (Number(result.params.initial_balance ?? 0) +
+            Number(result.params.monthly_contribution ?? 0) * row.month) /
+            Math.pow(1 + inflationRate, row.month / 12),
         ),
       }))
     : []
@@ -482,7 +536,17 @@ export default function Simulator() {
     heatmapYears[row.year] ??= Array(12).fill(null)
     heatmapYears[row.year][row.month - 1] = row.return
   }
-  const heatYears = Object.keys(heatmapYears).map(Number).sort((a, b) => a - b)
+  const allHeatYears = Object.keys(heatmapYears).map(Number).sort((a, b) => a - b)
+  // Show only the trailing `horizonYears` calendar years, so the realized window
+  // matches the horizon the user set in Controls instead of growing forever as
+  // price history accumulates. Anchored on the newest year present in the data,
+  // not on today: the snapshot is frozen, so anchoring to the current date
+  // would render a column of empty rows whenever the data lags. Always yields
+  // at least one year, so the table is never blank while data exists.
+  const latestHeatYear = allHeatYears[allHeatYears.length - 1]
+  const heatYears = Number.isFinite(latestHeatYear)
+    ? allHeatYears.filter((year) => year > latestHeatYear - horizonYears)
+    : []
 
   function heatCellStyle(value) {
     if (value === null) return {}
@@ -500,17 +564,9 @@ export default function Simulator() {
     return Math.abs(value) / 0.05 >= 0.55 ? 'text-white' : 'text-ink'
   }
 
-  return (
-    <div className="space-y-4">
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight text-ink">Simulator</h1>
-        <p className="mt-1 max-w-prose text-sm text-ink-soft">
-          Configure a hypothetical portfolio and run a Monte Carlo simulation to
-          chart its median growth trajectory.
-        </p>
-      </div>
-
-      <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-[300px_minmax(0,1fr)]">
+    return (
+      <div className="space-y-4">
+        <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-[300px_minmax(0,1fr)]">
         {/* ---- Control panel ---- */}
         <aside className="panel">
           <div className="panel-title">
@@ -657,6 +713,25 @@ export default function Simulator() {
               subtitle="Scales historical volatility by recent FinBERT news sentiment."
             />
 
+            {/* Real-world basis switches. Both re-run the simulation on the
+                server rather than post-processing the chart locally, because
+                they change the simulated distribution's reported units and the
+                stats are derived from the same adjusted paths. */}
+            <ToggleSwitch
+              checked={adjustForInflation}
+              onChange={setAdjustForInflation}
+              icon={TrendingDown}
+              title="Adjust for 3% Inflation"
+              subtitle="Restates paths and contributions in today's dollars."
+            />
+            <ToggleSwitch
+              checked={applyCapitalGainsTax}
+              onChange={setApplyCapitalGainsTax}
+              icon={Landmark}
+              title="Apply Capital Gains Tax"
+              subtitle="15% on the final profit of each path, charged once at liquidation."
+            />
+
             {error && <p className="text-xs text-neg">Error: {error}</p>}
 
             <button
@@ -715,6 +790,33 @@ export default function Simulator() {
                       {(result.params.n_simulations ?? 1000).toLocaleString()} simulated paths
                     </span>
                   </div>
+                  {/* Basis disclosure. Without this, an inflation-adjusted or
+                      after-tax run looks like a mysteriously worse portfolio
+                      rather than the same portfolio restated in different
+                      units. Only rendered when a toggle is actually on. */}
+                  {(adjustments.inflation_adjusted ||
+                    adjustments.capital_gains_tax_applied) && (
+                    <div className="flex flex-wrap items-center gap-x-4 gap-y-1 border-b border-edge px-4 py-2 text-11px text-ink-dim">
+                      <span className="font-semibold uppercase tracking-widest text-ink-faint">
+                        Basis
+                      </span>
+                      {adjustments.inflation_adjusted && (
+                        <span>
+                          Restated in today&apos;s dollars at{' '}
+                          {(adjustments.inflation_rate * 100).toFixed(0)}% inflation
+                        </span>
+                      )}
+                      {adjustments.capital_gains_tax_applied && (
+                        <span>
+                          {(adjustments.capital_gains_tax_rate * 100).toFixed(0)}%
+                          capital gains tax · median{' '}
+                          {formatCurrency(adjustments.median_capital_gains_tax)} ·{' '}
+                          {(adjustments.taxable_fraction_of_paths * 100).toFixed(0)}% of
+                          paths taxable
+                        </span>
+                      )}
+                    </div>
+                  )}
                   <div className="grid grid-cols-2 gap-x-4 gap-y-5 p-4 sm:grid-cols-3 xl:grid-cols-5">
                     {insightCards.map(({ icon: Icon, label, value, tone, title }) => (
                       <div key={label} title={title}>
@@ -866,10 +968,32 @@ export default function Simulator() {
                 <div className="panel-title">
                   <span>Growth fan chart · 10th–90th percentile</span>
                   <span className="flex items-center gap-2 font-mono text-xs normal-case text-ink-faint">
-                    {result.sentiment?.applied && (
-                      <span className="chip">
+                    {/* Sentiment badge. Shows the aggregate score that was
+                        actually applied, not just the multiplier it produced:
+                        a user who turns the toggle on needs to see the input,
+                        and "x1.01" on its own does not say which way sentiment
+                        leaned.
+
+                        Keyed on the score being present rather than on the
+                        response's own `applied` flag. That flag is
+                        `use_sentiment AND multiplier != 1.0`, so a genuinely
+                        neutral score of exactly 0.0 yields multiplier 1.0 and
+                        would otherwise be reported as "no recent news" - a
+                        wrong answer to a real (if rare) input. */}
+                    {result.sentiment?.score != null && (
+                      <span className="chip" title="Aggregate FinBERT sentiment over the 30-day lookback, and the volatility multiplier it produced. Negative sentiment widens the simulated distribution.">
                         <Sparkles size={10} strokeWidth={2} className="text-accent" />
-                        sentiment ×{result.sentiment.volatility_multiplier.toFixed(2)}
+                        sentiment {formatSentiment(result.sentiment.score)} · vol ×
+                        {result.sentiment.volatility_multiplier.toFixed(2)}
+                      </span>
+                    )}
+                    {result.params?.use_sentiment && result.sentiment?.score == null && (
+                      <span
+                        className="chip"
+                        title="The sentiment toggle was on, but no scored headline fell inside the 30-day lookback window, so the simulation ran unadjusted."
+                      >
+                        <Sparkles size={10} strokeWidth={2} className="text-ink-faint" />
+                        sentiment n/a · no recent news
                       </span>
                     )}
                     <span>
@@ -927,16 +1051,23 @@ export default function Simulator() {
                 </div>
               </div>
 
-              <div className="panel">
-                <div className="panel-title">
-                  <span>Realized monthly returns</span>
-                  <span className="flex items-center gap-2 font-mono text-xs normal-case text-ink-faint">
-                    <span className="flex items-center gap-1.5">
-                      <span className="inline-block h-2.5 w-6" style={{ background: 'linear-gradient(90deg, var(--down), transparent 50%, var(--up))' }} />
-                      loss → gain
+                <div className="panel">
+                  <div className="panel-title">
+                    <span>Realized monthly returns</span>
+                    <span className="flex items-center gap-3 font-mono text-xs normal-case text-ink-faint">
+                      {heatYears.length > 0 && (
+                        <span title={`Trailing ${horizonYears}-year window, matching the investment horizon.`}>
+                          {heatYears[0]}
+                          {heatYears.length > 1 ? `–${heatYears[heatYears.length - 1]}` : ''} ·{' '}
+                          {horizonYears} yr
+                        </span>
+                      )}
+                      <span className="flex items-center gap-1.5">
+                        <span className="inline-block h-2.5 w-6" style={{ background: 'linear-gradient(90deg, var(--down), transparent 50%, var(--up))' }} />
+                        loss · gain
+                      </span>
                     </span>
-                  </span>
-                </div>
+                  </div>
 
                 <div className="overflow-x-auto p-4">
                   {monthlyReturnsError ? (

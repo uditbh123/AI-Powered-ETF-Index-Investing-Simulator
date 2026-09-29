@@ -9,7 +9,6 @@ export default {
       colors: {
         base: {
           DEFAULT: '#F6F7F9', // page background
-          deep: '#F6F7F9',
           panel: '#FFFFFF', // surface
           elevated: '#FFFFFF', // surface
           hover: '#EEF0F3', // hover / subtle fill
@@ -17,7 +16,6 @@ export default {
         edge: {
           DEFAULT: '#E2E5EA', // border
           subtle: '#EEF0F3', // soft divider (surface-underlying tint)
-          strong: 'rgba(22, 24, 29, 0.18)', // ink-derived emphasis border
         },
         ink: {
           DEFAULT: '#16181D', // primary text
@@ -30,21 +28,17 @@ export default {
         // percentage change. Do not reintroduce a saturated accent here.
         accent: {
           DEFAULT: '#16181D',
-          dim: 'rgba(22, 24, 29, 0.65)', // accent-derived
         },
         pos: {
           DEFAULT: '#0E7C3A',
-          dim: 'rgba(14, 124, 58, 0.7)', // pos-derived
         },
         neg: {
           DEFAULT: '#C62828',
-          dim: 'rgba(198, 40, 40, 0.7)', // neg-derived
         },
         // Warning semantics reuse the loss red (institutional alert color);
         // keeps every value inside the fixed palette.
         warn: {
           DEFAULT: '#C62828',
-          dim: 'rgba(198, 40, 40, 0.7)',
         },
       },
       fontFamily: {
@@ -74,10 +68,9 @@ export default {
       boxShadow: {
         // Elevation is removed entirely: surfaces are separated by 1px
         // hairline borders, never by blur. `shadow-panel` is retained as a
-        // token name so the ~9 existing call sites stay valid and resolve to
-        // a flat, sharp surface.
+        // token name so existing call sites stay valid and resolve to a flat,
+        // sharp surface.
         panel: 'none',
-        'accent-glow': 'none',
       },
       // Square geometry is the default. No `rounded-*` scale is provided on
       // purpose, so a rounded corner cannot be introduced by accident.
