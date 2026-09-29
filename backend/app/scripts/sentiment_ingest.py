@@ -16,7 +16,6 @@ import logging
 import sys
 from collections.abc import Callable, Sequence
 
-from app.config import settings
 from app.dao import news as news_dao
 from app.dao import tickers as ticker_dao
 from app.data.news_sources import (
@@ -138,26 +137,29 @@ def run_pipeline(
     if not persist:
         return summary
 
-    inserted = 0
-    for item, score in zip(items, scores):
-        ticker_id = None
-        if item["symbol"] is not None:
-            row = ticker_dao.get_ticker(conn, item["symbol"])
-            if row is not None:
-                ticker_id = row["id"]
-        inserted += news_dao.insert_sentiment(
-            conn,
-            [
-                (
-                    ticker_id,
-                    item["headline"],
-                    item["source"],
-                    item["published_at"],
-                    score,
-                    item["category"],
-                )
-            ],
+    # Resolve each distinct symbol to a ticker_id once, then hand the whole
+    # batch to the DAO in a single call. Calling insert_sentiment per headline
+    # meant one dedupe lookup per item and one executemany per item; the DAO
+    # already accepts any number of rows, so a batch costs one round trip.
+    ticker_id_of: dict[str, int | None] = {}
+    for item in items:
+        symbol = item["symbol"]
+        if symbol not in ticker_id_of:
+            row = ticker_dao.get_ticker(conn, symbol) if symbol is not None else None
+            ticker_id_of[symbol] = row["id"] if row is not None else None
+
+    rows_to_insert = [
+        (
+            ticker_id_of[item["symbol"]],
+            item["headline"],
+            item["source"],
+            item["published_at"],
+            score,
+            item["category"],
         )
+        for item, score in zip(items, scores)
+    ]
+    inserted = news_dao.insert_sentiment(conn, rows_to_insert)
     conn.commit()
     summary["inserted"] = inserted
     return summary

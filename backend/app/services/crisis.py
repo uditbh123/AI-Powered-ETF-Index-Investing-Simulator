@@ -87,22 +87,18 @@ def compound_actual(
 ) -> np.ndarray:
     """Compound realized returns with start-of-month contributions.
 
-    Mirrors ``simulate_paths`` in ``monte_carlo.py`` for a single deterministic
-    path: with ``growth_t = prod(1 + r)`` through month t,
-
-        value_t = growth_t * (initial + contribution * sum_{k<=t} 1/growth_k)
-
-    (``growth_0 := 1``), i.e. the contribution deposited at the start of a month
-    earns that month's return. Returns the trajectory including the initial
-    balance at index 0.
+    The single-path case of the engine's annuity-due convention, delegated to
+    ``monte_carlo._compound_annuity_due`` rather than re-derived. That is the
+    point: the replayed trajectory is only comparable to a fan chart
+    (``crisis.py:4-6``) if it uses the identical contribution timing, and a
+    private helper reaches for it without widening the engine's public API.
+    Reached through the module (as with ``monte_carlo.run_simulation`` below)
+    so the call reads the same as its sibling.
     """
     returns = np.asarray(returns, dtype=float)
-    growth = np.cumprod(1.0 + returns)
-    inv = 1.0 / growth
-    inv_shifted = np.concatenate([np.ones(1), inv[:-1]])
-    inverse_sum = np.cumsum(inv_shifted)
-    values = growth * (float(initial_balance) + float(monthly_contribution) * inverse_sum)
-    return np.concatenate([[float(initial_balance)], values])
+    return monte_carlo._compound_annuity_due(
+        np.cumprod(1.0 + returns), initial_balance, monthly_contribution
+    )
 
 
 def run_crisis_replay(

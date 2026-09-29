@@ -135,6 +135,35 @@ def _draw_returns(
     return flat[:, :n_steps]
 
 
+def _compound_annuity_due(
+    growth: np.ndarray,
+    initial_balance: float,
+    monthly_contribution: float,
+) -> np.ndarray:
+    """Turn a cumulative-growth array into portfolio values with contributions.
+
+    ``growth`` is ``cumprod(1 + r)`` over the last axis, with the period-0
+    product defined as 1. A contribution deposited at the *start* of period k
+    earns period k's return, so it must be credited the discount ``1/growth[k-1]``;
+    the running sum of those discounts, scaled by the growth factor, gives the
+    value at each step::
+
+        value_t = growth_t * (initial + contribution * sum_{k<=t} 1/growth_k)
+
+    Works on a 1-D series (a single realized path) and a 2-D matrix (a fan of
+    simulated paths) alike, so the contribution-timing convention lives in
+    exactly one place. The initial balance is prepended at index 0.
+    """
+    discounted = np.concatenate(
+        [np.ones(growth.shape[:-1] + (1,)), (1.0 / growth)[..., :-1]], axis=-1
+    )
+    values = growth * (
+        float(initial_balance) + float(monthly_contribution) * np.cumsum(discounted, axis=-1)
+    )
+    return np.concatenate(
+        [np.full(growth.shape[:-1] + (1,), float(initial_balance)), values], axis=-1
+    )
+
 
 def simulate_paths(
     returns: Sequence[float],
@@ -174,17 +203,9 @@ def simulate_paths(
         returns = scale_returns_volatility(returns, volatility_multiplier)
 
     drawn = _draw_returns(rng, returns, n_simulations, horizon_months, blocks)
-
-    growth = np.cumprod(1.0 + drawn, axis=1)
-    inv = 1.0 / growth
-    # start-of-period contributions: contribution in period k grows from period k,
-    # so it needs 1/growth[k-1] with growth[0] := 1 (shift right by one column)
-    inv_shifted = np.concatenate([np.ones((inv.shape[0], 1)), inv[:, :-1]], axis=1)
-    inverse_sum = np.cumsum(inv_shifted, axis=1)
-    values = growth * (float(initial_balance) + float(monthly_contribution) * inverse_sum)
-
-    start = np.full((n_simulations, 1), float(initial_balance))
-    return np.concatenate([start, values], axis=1)
+    return _compound_annuity_due(
+        np.cumprod(1.0 + drawn, axis=1), initial_balance, monthly_contribution
+    )
 
 
 def inflation_deflator(

@@ -10,10 +10,52 @@ Access goes through this layer so the API/scripts never touch raw SQL.
 from __future__ import annotations
 
 import sqlite3
-from collections.abc import Iterable
+from collections.abc import Iterable, Sequence
 from typing import Any
 
 CATEGORIES = ("sector", "geopolitical")
+
+_SELECT_COLUMNS = (
+    "SELECT id, ticker_id_or_null, headline, source, published_at, "
+    "sentiment_score, category FROM news_sentiment"
+)
+
+_INSERT_SENTIMENT = (
+    "INSERT INTO news_sentiment (ticker_id_or_null, headline, source,"
+    " published_at, sentiment_score, category) VALUES (?, ?, ?, ?, ?, ?)"
+)
+
+# Rows per dedupe lookup. Three bound parameters per row keeps a chunk well
+# under SQLite's 999-variable default on older builds.
+_DEDUPE_CHUNK_ROWS = 300
+
+
+def _existing_keys(
+    conn: sqlite3.Connection,
+    keys: Sequence[tuple[str, str, str]],
+) -> set[tuple[str, str, str]]:
+    """Return which of ``keys`` are already stored, in as few queries as possible.
+
+    One row-value ``IN (VALUES ...)`` lookup per chunk replaces the ``SELECT 1``
+    this used to issue once per row.
+
+    A key whose ``source`` is NULL never matches: SQL ``NULL = NULL`` is
+    unknown, and a row-value comparison inherits that, so NULL-source
+    headlines are *not* treated as duplicates of each other. That is the
+    behavior the per-row ``SELECT`` had, and it is preserved deliberately.
+    """
+    found: set[tuple[str, str, str]] = set()
+    for start in range(0, len(keys), _DEDUPE_CHUNK_ROWS):
+        chunk = keys[start : start + _DEDUPE_CHUNK_ROWS]
+        placeholders = ", ".join(["(?, ?, ?)"] * len(chunk))
+        params = [part for key in chunk for part in key]
+        rows = conn.execute(
+            "SELECT headline, source, category FROM news_sentiment "
+            f"WHERE (headline, source, category) IN (VALUES {placeholders})",
+            params,
+        )
+        found.update((r["headline"], r["source"], r["category"]) for r in rows)
+    return found
 
 
 def insert_sentiment(
@@ -26,24 +68,44 @@ def insert_sentiment(
 
     Args are ``(ticker_id_or_null, headline, source, published_at,
     sentiment_score, category)`` tuples. Duplicate headlines from the same
-    source are ignored so re-running ingestion is idempotent.
+    source are ignored so re-running ingestion is idempotent; within a single
+    call the first occurrence of a duplicate wins.
+
+    Duplicates are resolved in two bulk steps rather than one query per row: an
+    in-memory ``seen`` set collapses repeats inside the batch, then one chunked
+    lookup finds what the table already holds. The remaining rows go in through
+    a single ``executemany``. Rows with a NULL ``source`` are always inserted,
+    because ``NULL`` never compares equal to ``NULL`` in the dedupe predicate.
     """
-    inserted = 0
+    pending: list[tuple] = []
+    seen: set[tuple[str, str, str]] = set()
     for ticker_id, headline, source, published_at, score, category in rows:
-        dup = conn.execute(
-            "SELECT 1 FROM news_sentiment "
-            "WHERE headline = ? AND source = ? AND category = ? LIMIT 1",
-            (headline, source, category),
-        ).fetchone()
-        if dup is not None:
-            continue
-        conn.execute(
-            "INSERT INTO news_sentiment (ticker_id_or_null, headline, source,"
-            " published_at, sentiment_score, category) VALUES (?, ?, ?, ?, ?, ?)",
-            (ticker_id, headline, source, published_at, score, category),
-        )
-        inserted += 1
-    return inserted
+        if source is not None:
+            key = (headline, source, category)
+            if key in seen:
+                continue
+            seen.add(key)
+        pending.append((ticker_id, headline, source, published_at, score, category))
+
+    if not pending:
+        return 0
+
+    keys = [
+        (headline, source, category)
+        for _, headline, source, _, _, category in pending
+        if source is not None
+    ]
+    existing = _existing_keys(conn, keys) if keys else set()
+    fresh = [
+        row
+        for row in pending
+        if row[2] is None or (row[1], row[2], row[5]) not in existing
+    ]
+    if not fresh:
+        return 0
+
+    conn.executemany(_INSERT_SENTIMENT, fresh)
+    return len(fresh)
 
 
 def list_sentiment(
@@ -63,7 +125,7 @@ def list_sentiment(
     newest few. Combined with the date ordering it returns the newest ``limit``
     rows when ``desc`` is set.
     """
-    query = "SELECT id, ticker_id_or_null, headline, source, published_at, sentiment_score, category FROM news_sentiment WHERE 1 = 1"
+    query = f"{_SELECT_COLUMNS} WHERE 1 = 1"
     params: list[Any] = []
     if category is not None:
         query += " AND category = ?"

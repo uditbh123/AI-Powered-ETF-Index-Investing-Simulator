@@ -36,6 +36,72 @@ def test_insert_geopolitical_allows_null_ticker(db):
     assert rows_back[0]["sentiment_score"] == -0.7
 
 
+def test_insert_in_batch_duplicate_keeps_first_score(db):
+    """Within one call the first occurrence wins, not the last."""
+    ticker = ticker_dao.get_or_create_ticker(db, "SPY")
+    rows = [
+        (ticker["id"], "Same headline", "Google News", "2024-08-05", 0.11, "sector"),
+        (ticker["id"], "Same headline", "Google News", "2024-08-05", 0.99, "sector"),
+    ]
+    assert news_dao.insert_sentiment(db, rows) == 1
+    stored = news_dao.list_sentiment(db, category="sector")
+    assert len(stored) == 1
+    assert stored[0]["sentiment_score"] == 0.11
+
+
+def test_insert_null_source_rows_are_never_deduped(db):
+    """NULL source is not equal to NULL source, so each row is kept.
+
+    Pins the SQL three-valued-logic behavior: a row-value ``IN (VALUES ...)``
+    comparison must not accidentally start treating NULL sources as dupes.
+    """
+    rows = [
+        (None, "Unattributed", None, "2024-08-05", 0.3, "geopolitical"),
+        (None, "Unattributed", None, "2024-08-05", 0.3, "geopolitical"),
+    ]
+    assert news_dao.insert_sentiment(db, rows) == 2
+    assert news_dao.count_sentiment(db) == 2
+
+
+def test_insert_dedupes_across_calls(db):
+    """Re-running ingestion stays idempotent: nothing new on the second pass."""
+    ticker = ticker_dao.get_or_create_ticker(db, "SPY")
+    rows = [
+        (ticker["id"], "H1", "S1", "2024-08-05", 0.5, "sector"),
+        (ticker["id"], "H2", "S1", "2024-08-05", 0.5, "sector"),
+    ]
+    assert news_dao.insert_sentiment(db, rows) == 2
+    assert news_dao.insert_sentiment(db, rows) == 0
+    assert news_dao.count_sentiment(db) == 2
+
+
+def test_insert_batches_across_chunk_boundary(db):
+    """More rows than one dedupe lookup holds, with a duplicate spanning chunks.
+
+    The lookup is chunked to stay under SQLite's bound-variable limit. A
+    headline repeated just past the boundary must still be caught, and all rows
+    must land in one call.
+    """
+    ticker = ticker_dao.get_or_create_ticker(db, "SPY")
+    total = 700
+    rows = [
+        (ticker["id"], f"H{i}", "S1", "2024-08-05", 0.1, "sector")
+        for i in range(total)
+    ]
+    rows.append((ticker["id"], "H699", "S1", "2024-08-05", 0.9, "sector"))
+    assert news_dao.insert_sentiment(db, rows) == total
+    assert news_dao.count_sentiment(db) == total
+    assert news_dao.insert_sentiment(db, rows) == 0
+
+
+def test_insert_empty_and_fully_duplicate_batches_return_zero(db):
+    assert news_dao.insert_sentiment(db, []) == 0
+    ticker = ticker_dao.get_or_create_ticker(db, "SPY")
+    rows = [(ticker["id"], "H1", "S1", "2024-08-05", 0.5, "sector")]
+    assert news_dao.insert_sentiment(db, rows) == 1
+    assert news_dao.insert_sentiment(db, rows) == 0
+
+
 def test_list_sentiment_filters_and_orders(db):
     ticker = ticker_dao.get_or_create_ticker(db, "QQQ")
     rows = [

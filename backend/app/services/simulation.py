@@ -46,14 +46,22 @@ def _portfolio_monthly_returns_core(
     Returns ``(portfolio_returns, month_labels)`` where ``month_labels`` holds
     each return's month-end date as ``"YYYY-MM-DD"``.
     """
+    # Fetch each DISTINCT ticker once. `tickers.symbol` is UNIQUE, so a symbol
+    # repeated across holdings is the same ticker_id and the same series: the
+    # old per-holding loop refetched and re-resampled it every time, which for a
+    # 50-holding portfolio of one symbol meant 50 identical queries for zero
+    # extra information. Only the *fetch* is deduped - `symbols`/`weights`
+    # below still come from the full holdings list, so holding SPY five times
+    # still gets five times its weight.
+    symbol_of = {h["ticker_id"]: h["symbol"] for h in holdings}
     series_by_symbol: dict[str, pd.Series] = {}
-    for holding in holdings:
-        rows = price_dao.get_price_history(conn, holding["ticker_id"])
+    for ticker_id, symbol in symbol_of.items():
+        rows = price_dao.get_price_history(conn, ticker_id)
         if not rows:
             continue
         index = pd.to_datetime([r["date"] for r in rows])
         closes = pd.Series([float(r["close"]) for r in rows], index=index, dtype=float)
-        series_by_symbol[holding["symbol"]] = closes.sort_index().resample("ME").last()
+        series_by_symbol[symbol] = closes.sort_index().resample("ME").last()
 
     missing = [h["symbol"] for h in holdings if h["symbol"] not in series_by_symbol]
     if missing:
@@ -315,20 +323,23 @@ def run_portfolio_simulation(
     params_json = json.dumps(params, sort_keys=True)
 
     cached_run = simulation_dao.find_cached_run(conn, portfolio_id, params_json)
-    if cached_run is not None and simulation_dao.has_results(conn, cached_run["id"]):
+    if cached_run is not None:
+        # One query, not two: a `has_results` probe followed by a `get_results`
+        # fetch asked for the same rows twice on every cache hit.
         results = simulation_dao.get_results(conn, cached_run["id"])
-        levels = [float(r["percentile"]) for r in results]
-        trajectories = [json.loads(r["path_json"]) for r in results]
-        return _assemble_response(
-            run_id=cached_run["id"],
-            portfolio_id=portfolio_id,
-            created_at=cached_run["created_at"],
-            params=params,
-            levels=levels,
-            trajectories=trajectories,
-            cached=True,
-            stats=_stats_from_run(cached_run),
-        )
+        if results:
+            levels = [float(r["percentile"]) for r in results]
+            trajectories = [json.loads(r["path_json"]) for r in results]
+            return _assemble_response(
+                run_id=cached_run["id"],
+                portfolio_id=portfolio_id,
+                created_at=cached_run["created_at"],
+                params=params,
+                levels=levels,
+                trajectories=trajectories,
+                cached=True,
+                stats=_stats_from_run(cached_run),
+            )
 
     # simulate_paths + path_percentiles rather than run_simulation: the bands
     # this entry point used to compute were discarded, because the tax/inflation

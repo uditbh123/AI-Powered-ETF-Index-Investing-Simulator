@@ -140,6 +140,104 @@ def test_history_to_rows_empty_frame():
     assert history_to_rows(pd.DataFrame(), "SPY") == []
 
 
+def test_history_to_rows_drops_infinite_close():
+    frame = make_frame(
+        "SPY",
+        [("2024-01-02", 100.0, 1.0), ("2024-01-03", np.inf, 1.0), ("2024-01-04", -np.inf, 1.0)],
+    )
+    assert history_to_rows(frame, "SPY") == [("2024-01-02", 100.0, 1)]
+
+
+def test_history_to_rows_all_closes_invalid_returns_empty():
+    frame = make_frame("SPY", [("2024-01-02", np.nan, 1.0), ("2024-01-03", np.inf, 1.0)])
+    assert history_to_rows(frame, "SPY") == []
+
+
+def test_history_to_rows_tz_aware_index_keeps_local_calendar_date():
+    """A tz-aware index must yield the local trading date, not the UTC one.
+
+    Vectorizing this by going through UTC would shift early US sessions onto
+    the previous day; the conversion drops the offset instead.
+    """
+    idx = pd.to_datetime(["2024-01-02 14:30", "2024-01-03 14:30"]).tz_localize(
+        "America/New_York"
+    )
+    frame = pd.DataFrame({"Close": [100.0, 101.0], "Volume": [5.0, 6.0]}, index=idx)
+    assert history_to_rows(frame, "SPY") == [
+        ("2024-01-02", 100.0, 5),
+        ("2024-01-03", 101.0, 6),
+    ]
+
+
+def test_history_to_rows_tz_aware_volume_realigned_across_indexes():
+    """Close dates missing from Volume must still be kept, with volume None."""
+    close_idx = pd.to_datetime(["2024-01-02", "2024-01-03", "2024-01-04"]).tz_localize("UTC")
+    vol_idx = pd.to_datetime(["2024-01-02", "2024-01-04"]).tz_localize("UTC")
+    frame = pd.concat(
+        [
+            pd.DataFrame({"Close": [100.0, 101.0, 102.0]}, index=close_idx),
+            pd.DataFrame({"Volume": [7.0, 9.0]}, index=vol_idx),
+        ],
+        axis=1,
+    )
+    assert history_to_rows(frame, "SPY") == [
+        ("2024-01-02", 100.0, 7),
+        ("2024-01-03", 101.0, None),
+        ("2024-01-04", 102.0, 9),
+    ]
+
+
+def test_history_to_rows_integer_volume_is_cast_to_int():
+    """int64 volume must not become a float via the float() coercion path."""
+    idx = pd.to_datetime(["2024-01-02"])
+    frame = pd.DataFrame(
+        {"Close": np.array([100.0]), "Volume": np.array([1_234_567], dtype="int64")},
+        index=idx,
+    )
+    (date, close, volume), = history_to_rows(frame, "SPY")
+    assert (date, close) == ("2024-01-02", 100.0)
+    assert volume == 1_234_567
+    assert isinstance(volume, int)
+
+
+def test_history_to_rows_requires_a_volume_column():
+    """Pins existing behavior: a frame with no Volume column raises.
+
+    yfinance always returns Volume for ``download``, so this is not worth
+    handling; the point of the test is that vectorizing the extraction did not
+    quietly turn a hard error into silently-None volumes.
+    """
+    idx = pd.to_datetime(["2024-01-02"])
+    frame = pd.DataFrame({"Close": [100.0]}, index=idx)
+    with pytest.raises(KeyError):
+        history_to_rows(frame, "SPY")
+
+
+def test_history_to_rows_single_row_frame():
+    assert history_to_rows(make_frame("SPY", [("2024-01-02", 100.0, 3.0)]), "SPY") == [
+        ("2024-01-02", 100.0, 3)
+    ]
+
+
+def test_history_to_rows_large_frame_matches_naive_reference():
+    """Guards the vectorized path against dtype/index coercion on real sizes."""
+    n = 5_000
+    idx = pd.date_range("2010-01-01", periods=n, freq="B", tz="America/New_York")
+    rng = np.random.default_rng(0)
+    close = 100.0 * np.cumprod(1 + rng.normal(0, 0.01, n))
+    close[rng.choice(n, 40, replace=False)] = np.nan
+    volume = rng.integers(1_000, 9_000_000, n).astype(float)
+    volume[rng.choice(n, 25, replace=False)] = np.nan
+    frame = pd.DataFrame({"Close": close, "Volume": volume}, index=idx)
+
+    rows = history_to_rows(frame, "SPY")
+    assert len(rows) == n - 40
+    assert rows[0][0] == "2010-01-01"
+    assert all(len(r) == 3 and r[1] is not None for r in rows)
+    assert any(r[2] is None for r in rows)
+    assert all(isinstance(r[2], int) for r in rows if r[2] is not None)
+
+
 # ---------------------------------------------------------------------------
 # refresh_ticker / refresh_catalog (persistence via mocked fetch)
 # ---------------------------------------------------------------------------

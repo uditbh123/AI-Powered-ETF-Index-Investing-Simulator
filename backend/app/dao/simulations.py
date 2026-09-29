@@ -43,23 +43,6 @@ def find_cached_run(
     ).fetchone()
 
 
-def list_runs(conn: sqlite3.Connection, portfolio_id: int) -> list[sqlite3.Row]:
-    return conn.execute(
-        f"SELECT {_RUN_COLUMNS} "
-        "FROM simulation_runs WHERE portfolio_id = ? ORDER BY id DESC",
-        (portfolio_id,),
-    ).fetchall()
-
-
-def has_results(conn: sqlite3.Connection, run_id: int) -> bool:
-    return (
-        conn.execute(
-            "SELECT 1 FROM simulation_results WHERE run_id = ? LIMIT 1", (run_id,)
-        ).fetchone()
-        is not None
-    )
-
-
 def save_results(
     conn: sqlite3.Connection,
     run_id: int,
@@ -85,8 +68,6 @@ __all__ = [
     "create_run",
     "get_run",
     "find_cached_run",
-    "list_runs",
-    "has_results",
     "save_results",
     "get_results",
 ]

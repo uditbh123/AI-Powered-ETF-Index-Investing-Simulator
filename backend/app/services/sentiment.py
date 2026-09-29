@@ -70,24 +70,19 @@ def _label_index(label_map: dict[int, str], needle: str) -> int | None:
     return None
 
 
-def _softmax(rows: Any) -> Any:
-    import torch
-
-    return torch.softmax(rows, dim=1)
-
-
 def _scores_from_logits(
     logits: Any,
     label_map: dict[int, str],
 ) -> list[float]:
+    import torch
+
     pos_idx = _label_index(label_map, "positive")
     neg_idx = _label_index(label_map, "negative")
     if pos_idx is None or neg_idx is None:  # unknown label scheme -> pos before neg
         pos_idx, neg_idx = 0, 1
 
-    probs = _softmax(logits)
-    scores = (probs[:, pos_idx] - probs[:, neg_idx]).cpu().numpy().tolist()
-    return scores
+    probs = torch.softmax(logits, dim=1)
+    return (probs[:, pos_idx] - probs[:, neg_idx]).cpu().numpy().tolist()
 
 
 def score_texts(texts: Sequence[str], batch_size: int | None = None) -> list[float]:

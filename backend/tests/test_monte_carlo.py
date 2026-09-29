@@ -21,6 +21,67 @@ from app.simulation import (
 N_SIMS = 3000
 
 
+# ---------------------------------------------------------------------------
+# _compound_annuity_due (the shared contribution-timing convention)
+# ---------------------------------------------------------------------------
+
+def test_compound_annuity_due_matches_explicit_reference_recursion():
+    """Must equal value_t = growth_t * (initial + c * sum_{k<=t} 1/growth_k)."""
+    from app.simulation.monte_carlo import _compound_annuity_due
+
+    growth = np.cumprod(1.0 + np.array([0.01, -0.02, 0.03, 0.0, 0.015]))
+    initial, contribution = 1_000.0, 50.0
+
+    discounts = [1.0, *[1.0 / g for g in growth[:-1]]]
+    running = 0.0
+    reference = [initial]
+    for g, disc in zip(growth, discounts):
+        running += disc
+        reference.append(g * (initial + contribution * running))
+
+    got = _compound_annuity_due(growth, initial, contribution)
+    assert got.shape == (len(growth) + 1,)
+    assert got[0] == initial
+    np.testing.assert_allclose(got, reference)
+
+
+def test_compound_annuity_due_handles_2d_path_fans():
+    """A (n_paths, n_steps) matrix must compound per row, not elementwise."""
+    from app.simulation.monte_carlo import _compound_annuity_due
+
+    growth = np.cumprod(1.0 + np.array([[0.01, -0.02, 0.03], [0.03, -0.01, 0.0]]), axis=1)
+    got = _compound_annuity_due(growth, 500.0, 25.0)
+
+    assert got.shape == (2, 4)
+    assert got[:, 0].tolist() == [500.0, 500.0]
+    for row in range(2):
+        np.testing.assert_allclose(
+            got[row], _compound_annuity_due(growth[row], 500.0, 25.0)
+        )
+
+
+def test_compound_annuity_due_zero_contribution_is_plain_compounding():
+    from app.simulation.monte_carlo import _compound_annuity_due
+
+    growth = np.cumprod(1.0 + np.array([0.01, -0.02, 0.03]))
+    got = _compound_annuity_due(growth, 1_000.0, 0.0)
+    np.testing.assert_allclose(got, np.concatenate([[1_000.0], 1_000.0 * growth]))
+
+
+def test_compound_annuity_due_contribution_earns_its_own_period():
+    """A contribution made at period k is exposed to period k's return."""
+    from app.simulation.monte_carlo import _compound_annuity_due
+
+    got = _compound_annuity_due(np.array([1.10]), 0.0, 100.0)
+    np.testing.assert_allclose(got, [0.0, 110.0])  # start-of-period, not end
+
+
+def test_simulate_paths_shapes_match_the_contract(synthetic_returns):
+    paths = simulate_paths(synthetic_returns, 1_000, 50, 24, 32, seed=7)
+    assert paths.shape == (32, 25)
+    assert np.all(paths[:, 0] == 1_000)
+
+
 @pytest.fixture
 def synthetic_returns() -> np.ndarray:
     """Fixed, reproducible series of monthly returns (~0.5%/mo, ~2.5% vol)."""
