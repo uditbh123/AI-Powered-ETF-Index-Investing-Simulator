@@ -104,8 +104,24 @@ curl -i https://<host>/                     # 200, text/html, <title>ETF Simulat
 curl https://<host>/tickers                 # JSON list of the 13 catalog tickers
 curl -X POST https://<host>/portfolios \
      -H 'Content-Type: application/json' \
-     -d '{"name":"smoke","monthly_contribution":100,"holdings":[{"symbol":"VTI","weight":100}]}'
+     -d '{"name":"smoke","monthly_contribution":100,"holdings":[{"symbol":"VTI","weight":1.0}]}'
 curl -X POST https://<host>/portfolios/<id>/simulate \
      -H 'Content-Type: application/json' \
      -d '{"initial_balance":10000,"horizon_months":120,"n_simulations":1000,"seed":42}'
 ```
+
+`weight` is a **fraction in (0, 1]**, not a percentage — `1.0`, not `100`. A
+percent-scale payload is rejected on purpose (it would otherwise be
+renormalized by the engine into a uniform allocation that returns plausible but
+wrong statistics). See the weight convention in `AGENTS.md`.
+
+`/docs` and `/openapi.json` are **not served** by default: the OpenAPI schema
+publishes every internal bound, which is reconnaissance for the workload
+ceiling. Set `EXPOSE_API_DOCS=true` to mount them. With the SPA present these
+paths otherwise return `index.html` (the client-side routing fallback), not a
+404, so check the body rather than the status code when checking.
+
+Under sustained load `/simulate` and `/crisis-replay` return `503` with a
+`Retry-After` header rather than queueing — see known issue #4 for the
+admission-control bound. A `503` from these two routes is expected behavior,
+not a fault.
