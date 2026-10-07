@@ -61,6 +61,16 @@ def _portfolio_monthly_returns_core(
             continue
         index = pd.to_datetime([r["date"] for r in rows])
         closes = pd.Series([float(r["close"]) for r in rows], index=index, dtype=float)
+        # A stored close of 0.0 (pre-2024 ingest, or a delisted instrument that
+        # yfinance reported as 0) makes `pct_change` emit inf (x/0) or nan (0/0),
+        # which the engine then resamples into every path. Treat a non-positive
+        # close the same as a missing one -- NaN. The `.resample("ME").last()`
+        # below then skips it and takes the last *valid* close in that month,
+        # so a bad day degrades to an earlier price in the same month rather
+        # than costing a month of history. The engine's own isfinite check
+        # (monte_carlo.simulate_paths) remains the backstop for write paths
+        # that bypass this builder.
+        closes = closes.where(closes > 0)
         series_by_symbol[symbol] = closes.sort_index().resample("ME").last()
 
     missing = [h["symbol"] for h in holdings if h["symbol"] not in series_by_symbol]

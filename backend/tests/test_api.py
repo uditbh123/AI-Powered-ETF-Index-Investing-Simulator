@@ -3,6 +3,7 @@
 Uses a temp SQLite file and synthetic monthly close data inserted directly via
 the DAO layer (no network). Scheduler is disabled for these tests.
 """
+import math
 import sqlite3
 from datetime import date
 
@@ -275,6 +276,45 @@ def test_simulate_portfolio_with_unavailable_ticker_returns_400(client):
     )
     assert resp.status_code == 400
     assert "GLD" in resp.json()["detail"]
+
+
+def test_simulate_with_stored_zero_close_returns_finite_fan_chart(client):
+    """A single close of 0.0 in the DB must not produce an opaque NaN 400.
+
+    A stored zero close makes pct_change emit inf (x/0) and 0/0, which used to
+    reach every simulated path and kill the request with numpy's own
+    "autodetected range of [nan, nan] is not finite". The service layer masks a
+    non-positive close as missing, so the month-end resample falls back to the
+    last valid close in that month and one bad row degrades gracefully.
+    """
+    pid = _create_portfolio(
+        client, holdings=[{"symbol": "SPY", "weight": 0.5}, {"symbol": "QQQ", "weight": 0.5}]
+    ).json()["id"]
+
+    conn = sqlite3.connect(settings.database_url[10:])
+    conn.row_factory = sqlite3.Row
+    bad_month = pd.date_range("2021-01-31", periods=MONTHS, freq="ME")[10]
+    for symbol in ("SPY", "QQQ"):
+        row = conn.execute("SELECT id FROM tickers WHERE symbol = ?", (symbol,)).fetchone()
+        conn.execute(
+            "UPDATE prices SET close = 0.0 WHERE ticker_id = ? AND date = ?",
+            (row["id"], bad_month.strftime("%Y-%m-%d")),
+        )
+    conn.commit()
+    conn.close()
+
+    resp = client.post(
+        f"/portfolios/{pid}/simulate",
+        json={"initial_balance": 10_000, "horizon_months": 12, "n_simulations": 100, "seed": 4},
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    for band in body["percentiles"]:
+        assert all(math.isfinite(v) for v in band["path"])
+    for value in body["summary"].values():
+        if isinstance(value, float):
+            assert math.isfinite(value)
+    assert body["summary"]["median_final_value"] > 0
 
 
 # ---------------------------------------------------------------------------

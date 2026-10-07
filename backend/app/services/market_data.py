@@ -98,7 +98,11 @@ def history_to_rows(
     volume = _extract_series(frame, symbol, "Volume").reindex(close.index)
 
     closes = close.to_numpy(dtype=float, na_value=np.nan)
-    keep = np.isfinite(closes)
+    # A close of 0.0 (or negative) is finite, so an isfinite-only filter lets it
+    # through -- but `pct_change` on it yields inf (x/0) and `diff` on it yields
+    # nan (0/0), and those poison the Monte Carlo engine downstream. Prices are
+    # strictly positive by definition, so drop them at the boundary.
+    keep = np.isfinite(closes) & (closes > 0)
     if not keep.any():
         return []
 

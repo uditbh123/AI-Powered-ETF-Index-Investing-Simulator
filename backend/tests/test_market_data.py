@@ -153,6 +153,33 @@ def test_history_to_rows_all_closes_invalid_returns_empty():
     assert history_to_rows(frame, "SPY") == []
 
 
+def test_history_to_rows_drops_non_positive_close():
+    """A finite 0.0 close must be dropped, not just a non-finite one.
+
+    0.0 passes an isfinite-only filter, but pct_change on it yields inf (x/0)
+    and diff yields nan (0/0), either of which poisons the Monte Carlo engine
+    once stored.
+    """
+    frame = make_frame(
+        "SPY",
+        [
+            ("2024-01-02", 100.0, 1.0),
+            ("2024-01-03", 0.0, 1.0),
+            ("2024-01-04", -5.0, 1.0),
+            ("2024-01-05", 101.0, 1.0),
+        ],
+    )
+    assert history_to_rows(frame, "SPY") == [
+        ("2024-01-02", 100.0, 1),
+        ("2024-01-05", 101.0, 1),
+    ]
+
+
+def test_history_to_rows_all_closes_non_positive_returns_empty():
+    frame = make_frame("SPY", [("2024-01-02", 0.0, 1.0), ("2024-01-03", -1.0, 1.0)])
+    assert history_to_rows(frame, "SPY") == []
+
+
 def test_history_to_rows_tz_aware_index_keeps_local_calendar_date():
     """A tz-aware index must yield the local trading date, not the UTC one.
 
