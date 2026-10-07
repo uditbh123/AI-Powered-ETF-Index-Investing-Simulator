@@ -6,7 +6,7 @@ import sqlite3
 from fastapi import APIRouter, Depends, HTTPException
 
 from ..dao import portfolios as portfolio_dao
-from ..deps import get_db
+from ..deps import SIMULATION_SLOTS, get_db
 from ..schemas import SimulationRequest
 from ..services.simulation import get_run_response, run_portfolio_simulation
 
@@ -24,6 +24,15 @@ def trigger_simulation(
     # service's ValueError is reserved for genuine "cannot simulate" reasons.
     if portfolio_dao.get_portfolio(conn, portfolio_id) is None:
         raise HTTPException(status_code=404, detail="portfolio not found")
+    # Acquired after the 404 so an unknown id never consumes a slot. Non-blocking
+    # on purpose: an overloaded server sheds load rather than piling blocked
+    # threads onto an already-saturated pool (see SIMULATION_SLOTS).
+    if not SIMULATION_SLOTS.acquire(blocking=False):
+        raise HTTPException(
+            status_code=503,
+            detail="simulation capacity exhausted, retry shortly",
+            headers={"Retry-After": "5"},
+        )
     try:
         return run_portfolio_simulation(
             conn,
@@ -39,6 +48,8 @@ def trigger_simulation(
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    finally:
+        SIMULATION_SLOTS.release()
 
 
 @router.get("/simulation-runs/{run_id}")

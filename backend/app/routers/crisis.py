@@ -6,7 +6,7 @@ import sqlite3
 from fastapi import APIRouter, Depends, HTTPException
 
 from ..dao import portfolios as portfolio_dao
-from ..deps import get_db
+from ..deps import SIMULATION_SLOTS, get_db
 from ..schemas import CrisisReplayRequest
 from ..services.crisis import run_crisis_replay
 
@@ -30,6 +30,15 @@ def replay_crisis(
     """
     if portfolio_dao.get_portfolio(conn, portfolio_id) is None:
         raise HTTPException(status_code=404, detail="portfolio not found")
+    # Same admission control as /simulate: this route resamples the full history
+    # to build percentile bands, so it allocates on the same order as a
+    # simulation and must share the budget rather than draw from a second pool.
+    if not SIMULATION_SLOTS.acquire(blocking=False):
+        raise HTTPException(
+            status_code=503,
+            detail="simulation capacity exhausted, retry shortly",
+            headers={"Retry-After": "5"},
+        )
     try:
         return run_crisis_replay(
             conn,
@@ -39,3 +48,5 @@ def replay_crisis(
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    finally:
+        SIMULATION_SLOTS.release()

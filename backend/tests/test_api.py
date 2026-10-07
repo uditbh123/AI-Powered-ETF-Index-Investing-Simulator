@@ -16,6 +16,7 @@ from app.dao import news as news_dao
 from app.dao import prices as price_dao
 from app.dao import tickers as ticker_dao
 from app.database import init_db
+from app.deps import SIMULATION_SLOTS
 from app.main import app
 
 MONTHS = 36
@@ -389,3 +390,73 @@ def test_sentiment_flag_changes_the_cache_key(client):
         f"/portfolios/{pid}/simulate", json={**payload, "use_sentiment": True}
     ).json()
     assert plain["run_id"] != senti["run_id"]
+
+
+# ---------------------------------------------------------------------------
+# Admission control: bounded concurrency and a closed API schema by default
+# ---------------------------------------------------------------------------
+
+def test_simulate_returns_503_when_no_slot_is_free(client):
+    """A saturated server must shed load, not queue it.
+
+    MAX_PATH_STEPS bounds one request, not forty concurrent ones: the worst
+    legal request allocates ~800 MB, and Starlette runs these sync handlers in
+    a 40-thread pool. Holding both slots and calling again must be a fast 503
+    rather than a second ~800 MB allocation.
+    """
+    pid = _create_portfolio(client).json()["id"]
+    payload = {"initial_balance": 5000, "horizon_months": 12, "n_simulations": 100}
+
+    held = [SIMULATION_SLOTS.acquire(blocking=False) for _ in range(2)]
+    try:
+        assert all(held), "test could not exhaust the slot budget"
+        response = client.post(f"/portfolios/{pid}/simulate", json=payload)
+    finally:
+        for _ in held:
+            SIMULATION_SLOTS.release()
+
+    assert response.status_code == 503
+    assert "capacity" in response.json()["detail"].lower()
+    assert response.headers["retry-after"] == "5"
+
+
+def test_unknown_portfolio_is_404_and_does_not_consume_a_slot(client):
+    """The slot is acquired after the 404, so a bogus id can't starve the pool."""
+    assert SIMULATION_SLOTS._value == 2, "slots must start fully available"
+    response = client.post("/portfolios/999999/simulate", json={"initial_balance": 5000})
+    assert response.status_code == 404
+    # If the 404 path had acquired a slot and not released it, the next real
+    # request would fail; assert the budget is still fully available.
+    assert SIMULATION_SLOTS._value == 2
+
+
+def test_slot_is_released_after_a_simulation_succeeds(client):
+    """A completed run must return its slot, or the server self-DoSes."""
+    pid = _create_portfolio(client).json()["id"]
+    for _ in range(3):
+        response = client.post(
+            f"/portfolios/{pid}/simulate",
+            json={
+                "initial_balance": 5000,
+                "horizon_months": 12,
+                "n_simulations": 100,
+                "seed": 1,
+            },
+        )
+        assert response.status_code == 200
+    assert SIMULATION_SLOTS._value == 2
+
+
+def test_slot_is_released_after_a_simulation_fails_validation(client):
+    """A 400 must not leak its slot -- that would be an easy DoS."""
+    pid = _create_portfolio(client).json()["id"]
+    # The seeded history is 2021-2023, so the GFC window cannot be covered and
+    # the service raises ValueError -> 400.
+    response = client.post(
+        f"/portfolios/{pid}/crisis-replay",
+        json={"crisis": "gfc_2008", "initial_balance": 5000},
+    )
+    assert response.status_code == 400
+    assert SIMULATION_SLOTS._value == 2
+
+
