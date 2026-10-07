@@ -85,3 +85,64 @@ def test_no_dist_unknown_path_is_404(client):
     response = client.get("/nope")
     assert response.status_code == 404
     assert response.json() == {"detail": "Not Found"}
+
+
+#: Escapes that defeat a naive ``startswith(root)`` check: a plain "../",
+#: a traversal that resolves back inside dist after crossing a subdirectory, a
+#: doubled-dot segment that some normalizers collapse, and a percent-encoded
+#: form that only decodes after the path is joined.
+TRAVERSAL_PROBES = (
+    "../secret.env",
+    "../../secret.env",
+    "assets/../../secret.env",
+    "....//....//secret.env",
+    "%2e%2e%2fsecret.env",
+    "..%2fsecret.env",
+    "assets/./../../secret.env",
+)
+
+
+@pytest.mark.parametrize("probe", TRAVERSAL_PROBES)
+def test_spa_fallback_rejects_path_traversal(client, tmp_path, probe):
+    """A file outside dist must never be served, whatever the URL says.
+
+    ``spa_fallback``'s ``root in candidate.parents`` check is the only thing
+    between a request and /etc/passwd or a mounted .env. The control works, but
+    nothing in the suite pinned it -- dropping that clause during a refactor
+    would leave every other test green. This writes a canary outside dist and
+    asserts its contents never come back, whether the response is a 200
+    fallback or a 404; both are acceptable, leaking is not.
+    """
+    dist = _make_dist(tmp_path)
+    settings.frontend_dist = str(dist)
+    canary = tmp_path / "secret.env"
+    canary.write_text("NEWS_API_KEY=leaked-canary-value")
+
+    response = client.get("/" + probe)
+
+    assert "leaked-canary-value" not in response.text
+
+
+def test_spa_fallback_does_not_serve_a_sibling_directory(tmp_path):
+    """The traversal guard is about the resolved path, not the URL string.
+
+    A sibling directory whose name *starts with* the dist directory name is the
+    case a ``str(candidate).startswith(str(root))`` prefix check gets wrong
+    (``/app/frontend/dist-secrets`` vs ``/app/frontend/dist``).
+    """
+    dist = _make_dist(tmp_path)
+    sibling = tmp_path / "dist-secrets"
+    sibling.mkdir()
+    (sibling / "env").write_text("HF_TOKEN=leaked-canary-value")
+
+    original_dist = settings.frontend_dist
+    original_sched = settings.enable_scheduler
+    settings.frontend_dist = str(dist)
+    settings.enable_scheduler = False
+    try:
+        with TestClient(app) as test_client:
+            response = test_client.get("/../dist-secrets/env")
+            assert "leaked-canary-value" not in response.text
+    finally:
+        settings.frontend_dist = original_dist
+        settings.enable_scheduler = original_sched
