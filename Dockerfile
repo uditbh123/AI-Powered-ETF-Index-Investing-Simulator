@@ -37,4 +37,10 @@ USER appuser
 EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=3s --start-period=15s --retries=3 \
   CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3)"
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+# --limit-concurrency bounds how many requests may be in flight at once. The
+# engine allocates ~800 MB for the worst request MAX_PATH_STEPS permits, and
+# the SIMULATION_SLOTS semaphore in app/deps.py sheds simulation load at 2; this
+# is the outer belt so a burst of cheap non-simulation routes cannot occupy the
+# whole thread pool either.
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", \
+     "--limit-concurrency", "16", "--timeout-keep-alive", "10"]
