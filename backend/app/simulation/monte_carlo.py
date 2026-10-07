@@ -45,6 +45,21 @@ INFLATION_ANNUAL_RATE = 0.03
 # different jurisdiction is wanted.
 CAPITAL_GAINS_TAX_RATE = 0.15
 
+# --- Numerical floors --------------------------------------------------------
+#: Floor on the cumulative growth factor of a simulated path.
+#:
+#: A wiped-out position is worth ~0, but the *exact* 0.0 is unusable: the
+#: annuity-due formula discounts each contribution by ``1 / growth``, so a zero
+#: factor yields ``inf`` and then ``nan`` (``growth * inf``). Flooring the
+#: growth factor bounds that discount at ``1 / MIN_GROWTH`` = 1e12 and keeps the
+#: whole trajectory finite at any horizon.
+#:
+#: This floors the *cumulative* factor, which the per-draw -0.99 floor in
+#: `simulate_paths` cannot do: bounding each draw still lets ``cumprod``
+#: underflow to exactly 0.0 over a long enough run of losing draws
+#: (``0.01 ** 161 == 0.0`` in float64).
+MIN_GROWTH = 1e-12
+
 
 def returns_from_prices(prices: Sequence[float]) -> np.ndarray:
     """Convert a series of prices/closes into period-over-period returns."""
@@ -199,13 +214,38 @@ def simulate_paths(
     returns = np.asarray(returns, dtype=float)
     if returns.ndim != 1 or returns.size == 0:
         raise ValueError("returns must be a non-empty 1-D array")
+    # A non-finite historical return (0/0 from a zero close, or x/0 from a
+    # close that goes to zero afterwards) resamples straight into the fan
+    # chart, and `cumprod(1 + nan)` poisons every downstream statistic. Reject
+    # it here, where the message can name the cause, rather than letting the
+    # engine emit NaN that surfaces as an opaque "range of [nan, nan] is not
+    # finite" 400. This is the engine's last line of defence; the closer-to-
+    # source guards are `returns_from_prices` (non-positive prices) and
+    # `market_data.history_to_rows` (non-positive closes).
+    if not np.all(np.isfinite(returns)):
+        raise ValueError("returns must all be finite")
     if volatility_multiplier != 1.0:
         returns = scale_returns_volatility(returns, volatility_multiplier)
 
     drawn = _draw_returns(rng, returns, n_simulations, horizon_months, blocks)
-    return _compound_annuity_due(
-        np.cumprod(1.0 + drawn, axis=1), initial_balance, monthly_contribution
-    )
+    # Two floors, because they bound different things.
+    #
+    # The per-draw floor keeps any single draw from implying a loss of more
+    # than the whole position. It is applied here, on the drawn matrix, rather
+    # than left to `scale_returns_volatility`: that function returns early when
+    # multiplier == 1.0 and `simulate_paths` only calls it when
+    # volatility_multiplier != 1.0, so the default path never floored anything.
+    drawn = np.maximum(drawn, -0.99)
+    #
+    # The per-draw floor alone is NOT sufficient. It bounds each draw, not the
+    # cumulative product: a long enough run of floored draws still underflows
+    # `cumprod` to exactly 0.0 (0.01 ** 161 == 0.0 in float64), and the
+    # 1/growth discount in `_compound_annuity_due` then divides by zero. So the
+    # growth factor itself is floored, which is what actually bounds the
+    # discount at 1/MIN_GROWTH.
+    growth = np.cumprod(1.0 + drawn, axis=1)
+    growth = np.maximum(growth, MIN_GROWTH)
+    return _compound_annuity_due(growth, initial_balance, monthly_contribution)
 
 
 def inflation_deflator(

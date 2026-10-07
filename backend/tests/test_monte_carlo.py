@@ -210,6 +210,78 @@ def test_geometric_mean_undefined_yields_none_match():
 
 
 # ---------------------------------------------------------------------------
+# Non-positive / non-finite returns (a zero or delisted close in the history)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize(
+    "bad_return",
+    [float("nan"), float("inf"), -float("inf")],
+)
+def test_non_finite_returns_are_rejected_before_resampling(bad_return):
+    """x/0 or 0/0 in the history must not reach the fan chart as NaN.
+
+    Previously these produced cumprod(1 + nan) -> inf -> NaN, and the request
+    died with an opaque "range of [nan, nan] is not finite" 400.
+    """
+    returns = [0.01, 0.02, bad_return, -0.005, 0.03]
+    with pytest.raises(ValueError, match="finite"):
+        simulate_paths(returns, 1000.0, 50.0, 60, N_SIMS, seed=7)
+
+
+def test_total_loss_return_is_floored_and_stays_finite():
+    """A -1.0 draw makes growth 0.0; the 1/growth discount must not divide by it.
+
+    This is the default volatility_multiplier == 1.0 path, which returned early
+    from scale_returns_volatility and so never applied its -0.99 floor.
+    """
+    paths = simulate_paths([0.01] * 4 + [-1.0], 1000.0, 50.0, 60, N_SIMS, seed=7)
+    assert np.all(np.isfinite(paths))
+    assert np.all(paths >= 0.0)
+
+
+@pytest.mark.parametrize("contribution", [0.0, 250.0])
+def test_cumulative_underflow_stays_finite_over_a_long_horizon(contribution):
+    """Flooring each draw is not enough; the cumulative product can still hit 0.
+
+    Every draw floored at -0.99 shrinks growth by 0.01 per step, and
+    ``0.01 ** 161`` is exactly 0.0 in float64 -- so the growth floor has to be
+    applied to the product, not just to the inputs. Contributions matter here:
+    with contribution > 0 the annuity discount ``1 / growth`` is the term that
+    actually reaches inf and then nan.
+    """
+    paths = simulate_paths([-1.0] * 400, 1000.0, contribution, 400, 3, seed=1)
+    assert np.all(np.isfinite(paths))
+
+
+def test_maximum_horizon_all_total_losses_is_finite():
+    """The longest horizon the API accepts, fed an all-wipeout history."""
+    paths = simulate_paths([-0.5] * 50, 1000.0, 500.0, 600, 50, seed=2)
+    assert np.all(np.isfinite(paths))
+    assert np.all(paths >= 0.0)
+
+
+def test_run_simulation_with_total_loss_history_is_finite():
+    """The same guard must hold through the high-level entry point."""
+    result = run_simulation(
+        returns=[0.01] * 4 + [-1.0],
+        initial_balance=5000.0,
+        monthly_contribution=250.0,
+        horizon_months=60,
+        n_simulations=500,
+        seed=11,
+    )
+    assert np.all(np.isfinite(result["paths"]))
+    for band in result["percentiles"]:
+        assert np.all(np.isfinite(band))
+
+
+def test_returns_from_prices_rejects_zero_close():
+    """A zero close must be rejected at the price->return boundary."""
+    with pytest.raises(ValueError, match="positive"):
+        returns_from_prices([100.0, 0.0, 50.0])
+
+
+# ---------------------------------------------------------------------------
 # Percentiles and the high-level entry point
 # ---------------------------------------------------------------------------
 
