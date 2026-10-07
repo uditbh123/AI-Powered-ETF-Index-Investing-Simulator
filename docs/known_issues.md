@@ -118,10 +118,10 @@ stored, `pct_change` turns it into `inf` (`x / 0`) and `diff` into `nan`
 (`0 / 0`), and either value resamples straight into every simulated path:
 `cumprod(1 + nan)` makes the growth factor `nan`, the `1 / growth` discount in
 `_compound_annuity_due` produces `inf`, and the whole fan chart is NaN. The
-request then died with numpy's own message ΓÇö `"autodetected range of [nan, nan]
-is not finite"` ΓÇö as a 400 detail, which named neither the ticker nor the cause.
+request then died with numpy's own message — `"autodetected range of [nan, nan]
+is not finite"` — as a 400 detail, which named neither the ticker nor the cause.
 
-**How it is contained now ΓÇö three layers, outermost first.**
+**How it is contained now — three layers, outermost first.**
 
 1. *Ingest* (`app/services/market_data.py::history_to_rows`): the filter is
    `np.isfinite(closes) & (closes > 0)`, so a non-positive close is no longer
@@ -131,13 +131,13 @@ is not finite"` ΓÇö as a 400 detail, which named neither the ticker nor the c
    non-positive value as missing. The following `.resample("ME").last()` skips
    the NaN and takes the last *valid* close in that month, so a bad day degrades
    to an earlier price in the same month rather than dropping the month or
-   failing the simulation. This layer exists specifically so an existing DB ΓÇö
+   failing the simulation. This layer exists specifically so an existing DB —
    including the frozen `backend/deploy.db` snapshot, which was ingested before
-   the ingest guard existed ΓÇö degrades instead of failing.
+   the ingest guard existed — degrades instead of failing.
 3. *Engine* (`app/simulation/monte_carlo.py::simulate_paths`): rejects any
    non-finite historical return with `ValueError("returns must all be finite")`,
    which the router surfaces as a 400 naming the actual problem. This is the
-   backstop for write paths that bypass both layers above ΓÇö a migration, a
+   backstop for write paths that bypass both layers above — a migration, a
    script, or a hand-edited DB.
 
 Separately, the engine now applies **two** floors, because they bound different
@@ -162,12 +162,12 @@ and both zero and non-zero contributions: zero non-finite cells.
 
 **Why the constraint is not simply added to the schema.** `CHECK (close > 0)`
 is the correct fix, but SQLite cannot add a constraint to an existing table
-without a full table rebuild ΓÇö `ensure_column` in `app/database.py` rebuilds
+without a full table rebuild — `ensure_column` in `app/database.py` rebuilds
 *columns* only. That is a migration with real blast radius against a frozen
 deployment snapshot, so it is deliberately not bundled into a bug fix. It should
 ride with the next schema-version bump.
 
-**Residual blind spots ΓÇö accepted, worth knowing:**
+**Residual blind spots — accepted, worth knowing:**
 
 1. A ticker whose *entire* price history is non-positive yields an empty frame
    and the honest 400 `"not enough overlapping monthly history to simulate"`,
@@ -177,6 +177,59 @@ ride with the next schema-version bump.
    hand-edited row) are rejected by `simulate_paths` only via the `-0.99` floor
    on the drawn matrix, not at the source. `returns_from_prices` already
    rejects non-positive prices outright.
+
+---
+
+## 4. No per-client identity, so admission control is global
+
+**Status:** accepted limitation, bounded in code, regression-tested.
+
+**What it is.** Limitation #1 established that there is no auth. This entry is
+the *other* consequence, and it is not covered by #1: unauthenticated
+resource **exhaustion**. `MAX_PATH_STEPS` bounds a single request to 20M
+path-steps, but a cap that applies per request bounds nothing under concurrency.
+These handlers are sync `def`, so Starlette runs them in its default 40-thread
+pool.
+
+Measured, worst legal request (33,333 paths x 600 months, just under the cap):
+
+| | |
+|---|---|
+| Result array | 160 MB |
+| Peak allocated | ~800 MB (~5x — `cumprod` and the annuity discount each allocate a full copy) |
+| x40 threads | ~32 GB |
+
+The run cache does not mitigate this: `canonical_params` keys on `seed`, so
+varying it evicts trivially (measured: 3 identical repeats drop to 0.07s, each
+new seed pays full price again).
+
+**How it is bounded now.** `SIMULATION_SLOTS` in `app/deps.py` is a
+2-slot semaphore acquired non-blocking in both routes that run the engine
+(`/simulate` and `/crisis-replay`), returning `503` with `Retry-After` when
+exhausted. Non-blocking is deliberate: an overloaded server sheds load rather
+than accumulating blocked threads each holding an open SQLite connection. The
+acquire happens *after* the 404 check so an unknown id cannot consume a slot,
+and `finally` guarantees release on success and on `ValueError` alike.
+
+Paired with `--limit-concurrency 16` on the uvicorn command in the `Dockerfile`,
+so a burst of cheap non-simulation routes cannot occupy the whole pool either.
+
+Verified against the built container with 8 concurrent max-workload requests
+(distinct seeds): 2 admitted with `200`, 6 shed with `503`, container remained
+healthy, no tracebacks. Peak in-flight allocation now ~1.6 GB.
+
+**Residual blind spots — accepted, worth knowing:**
+
+1. The semaphore is **per process**. Under `uvicorn --workers N` (or any
+   multi-replica deployment) each worker gets its own 2 slots, so the bound is
+   `2N`, not 2. A shared bound needs a cross-process primitive — a file lock, or
+   a queue in front of the app — which is a larger deployment change than this
+   project has made. The single-container deployment is unaffected.
+2. `SIMULATION_SLOTS` is sized for a ~2 GB box. On a larger host the constant
+   could be raised; it is deliberately conservative, and a 503 under load is a
+   safe failure mode.
+3. This bounds *memory*, not CPU. A sustained stream of sub-cap requests can
+   still keep every thread busy. That is what `--limit-concurrency` bounds.
 
 ---
 
