@@ -107,6 +107,79 @@ exclusion is load-bearing rather than a blanket pass.
 
 ---
 
+## 3. `prices.close` has no positive-value constraint at the storage layer
+
+**Status:** accepted limitation, mitigated in code, regression-tested.
+
+**What it is.** `prices.close` is `REAL NOT NULL` with no `CHECK (close > 0)`,
+unlike `weight`, which does have one. A close of `0.0` is *finite*, so it passes
+every `isfinite` filter on the ingest path and can be written to the table. Once
+stored, `pct_change` turns it into `inf` (`x / 0`) and `diff` into `nan`
+(`0 / 0`), and either value resamples straight into every simulated path:
+`cumprod(1 + nan)` makes the growth factor `nan`, the `1 / growth` discount in
+`_compound_annuity_due` produces `inf`, and the whole fan chart is NaN. The
+request then died with numpy's own message ΓÇö `"autodetected range of [nan, nan]
+is not finite"` ΓÇö as a 400 detail, which named neither the ticker nor the cause.
+
+**How it is contained now ΓÇö three layers, outermost first.**
+
+1. *Ingest* (`app/services/market_data.py::history_to_rows`): the filter is
+   `np.isfinite(closes) & (closes > 0)`, so a non-positive close is no longer
+   written to the table in the first place.
+2. *Service* (`app/services/simulation.py::_portfolio_monthly_returns_core`): a
+   stored close is passed through `closes.where(closes > 0)`, which masks a
+   non-positive value as missing. The following `.resample("ME").last()` skips
+   the NaN and takes the last *valid* close in that month, so a bad day degrades
+   to an earlier price in the same month rather than dropping the month or
+   failing the simulation. This layer exists specifically so an existing DB ΓÇö
+   including the frozen `backend/deploy.db` snapshot, which was ingested before
+   the ingest guard existed ΓÇö degrades instead of failing.
+3. *Engine* (`app/simulation/monte_carlo.py::simulate_paths`): rejects any
+   non-finite historical return with `ValueError("returns must all be finite")`,
+   which the router surfaces as a 400 naming the actual problem. This is the
+   backstop for write paths that bypass both layers above ΓÇö a migration, a
+   script, or a hand-edited DB.
+
+Separately, the engine now applies **two** floors, because they bound different
+things.
+
+1. A per-draw floor of `-0.99` on the **drawn** matrix. This was a real gap:
+   `scale_returns_volatility` documents a `-0.99` floor but returns early when
+   `multiplier == 1.0`, and `simulate_paths` only calls it when
+   `volatility_multiplier != 1.0`, so the **default** path never floored
+   anything. A `-1.0` draw (reachable from a delisted instrument's history)
+   would otherwise imply a loss of more than the entire position.
+2. A floor of `MIN_GROWTH = 1e-12` on the **cumulative growth factor** itself.
+   The per-draw floor is necessary but not sufficient: it bounds each draw, not
+   the product, and a long enough run of floored draws still underflows
+   `cumprod` to exactly `0.0` (`0.01 ** 161 == 0.0` in float64). The discount
+   `1 / growth` in `_compound_annuity_due` would then be `inf` and the product
+   `growth * inf` would be `nan`. Flooring the product is what actually bounds
+   the discount at `1e12` and keeps a path finite at any horizon.
+
+Verified at the API's maximum horizon (600 months) with an all-wipeout history
+and both zero and non-zero contributions: zero non-finite cells.
+
+**Why the constraint is not simply added to the schema.** `CHECK (close > 0)`
+is the correct fix, but SQLite cannot add a constraint to an existing table
+without a full table rebuild ΓÇö `ensure_column` in `app/database.py` rebuilds
+*columns* only. That is a migration with real blast radius against a frozen
+deployment snapshot, so it is deliberately not bundled into a bug fix. It should
+ride with the next schema-version bump.
+
+**Residual blind spots ΓÇö accepted, worth knowing:**
+
+1. A ticker whose *entire* price history is non-positive yields an empty frame
+   and the honest 400 `"not enough overlapping monthly history to simulate"`,
+   rather than a simulated result. That is the intended outcome, not a masking
+   of one.
+2. Negative returns below `-1.0` (impossible from real prices, possible from a
+   hand-edited row) are rejected by `simulate_paths` only via the `-0.99` floor
+   on the drawn matrix, not at the source. `returns_from_prices` already
+   rejects non-positive prices outright.
+
+---
+
 ## Open items
 
 <!-- Intentionally empty. Add post-freeze findings here, most recent last. -->
