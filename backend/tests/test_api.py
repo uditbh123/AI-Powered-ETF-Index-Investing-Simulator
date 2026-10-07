@@ -460,3 +460,54 @@ def test_slot_is_released_after_a_simulation_fails_validation(client):
     assert SIMULATION_SLOTS._value == 2
 
 
+def test_api_schema_is_not_exposed_by_default(client):
+    """The schema publishes every internal bound, so it is opt-in.
+
+    Asserts on content, not status: with a built frontend/dist present the
+    catch-all SPA route answers these paths with index.html, so a 200 here is
+    the SPA and not the schema. The point is that no OpenAPI document is served.
+    """
+    for path in ("/openapi.json", "/docs"):
+        response = client.get(path)
+        assert "openapi" not in response.text.lower(), path
+        assert response.headers["content-type"].startswith("text/html") or (
+            response.status_code == 404
+        )
+
+
+def test_root_does_not_advertise_docs_when_they_are_disabled(tmp_path):
+    """The JSON root must never point at a URL that is not mounted.
+
+    Pointed at a nonexistent dist so the JSON root is served rather than the
+    SPA's index.html.
+    """
+    original_dist = settings.frontend_dist
+    original_sched = settings.enable_scheduler
+    original_url = settings.database_url
+    settings.database_url = f"sqlite:///{(tmp_path / 'docs.db').as_posix()}"
+    settings.frontend_dist = "C:/does/not/exist"
+    settings.enable_scheduler = False
+    init_db()
+    try:
+        with TestClient(app) as test_client:
+            body = test_client.get("/").json()
+            assert body["message"] == "ETF Simulator API"
+            assert "docs" not in body
+    finally:
+        settings.frontend_dist = original_dist
+        settings.enable_scheduler = original_sched
+        settings.database_url = original_url
+
+
+def test_api_docs_are_disabled_at_construction_by_default():
+    """The docs URLs are bound when FastAPI is constructed, so assert the wiring.
+
+    `openapi_url` / `docs_url` / `redoc_url` are fixed at app construction (i.e.
+    at import, from the environment), which is the correct behaviour for a
+    container but means the flag cannot be flipped by mutating `settings` in a
+    test. The security-relevant assertion is therefore on the constructed app.
+    """
+    assert settings.expose_api_docs is False
+    assert app.openapi_url is None
+    assert app.docs_url is None
+    assert app.redoc_url is None

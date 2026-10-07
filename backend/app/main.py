@@ -41,6 +41,13 @@ app = FastAPI(
     description="Educational simulation backend. Not financial advice.",
     version="0.1.0",
     lifespan=lifespan,
+    # Off unless explicitly enabled: the schema documents every internal bound,
+    # which is exactly what someone probing for the workload ceiling wants to
+    # read. /openapi.json is the same disclosure in machine-readable form, so it
+    # follows the same flag. See Settings.expose_api_docs.
+    docs_url="/docs" if settings.expose_api_docs else None,
+    redoc_url="/redoc" if settings.expose_api_docs else None,
+    openapi_url="/openapi.json" if settings.expose_api_docs else None,
 )
 
 app.include_router(health.router)
@@ -63,12 +70,16 @@ def root():
     dist = _frontend_dist()
     if dist is not None:
         return FileResponse(dist / "index.html")
-    return {
+    payload = {
         "message": "ETF Simulator API",
-        "docs": "/docs",
         "health": "/health",
         "db_connected": check_db_connected(),
     }
+    # Only advertise the docs when they are actually mounted, so this response
+    # never points a client at a 404.
+    if settings.expose_api_docs:
+        payload["docs"] = "/docs"
+    return payload
 
 
 # Registered last so every API route above wins the match; serves hashed SPA

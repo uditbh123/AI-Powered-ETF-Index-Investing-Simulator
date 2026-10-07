@@ -34,5 +34,15 @@ class Settings(BaseSettings):
     refresh_hour: int = 6
     refresh_minute: int = 30
 
+    # --- HTTP surface -----------------------------------------------------
+    # Serving the interactive API docs is a convenience for development, and it
+    # publishes the full route and parameter schema to any client that can
+    # reach the port -- including every internal bound (MAX_PATH_STEPS and
+    # friends), which is reconnaissance for someone looking for the workload
+    # ceiling. Default off; opt in with EXPOSE_API_DOCS=true. /openapi.json
+    # follows the same flag, since it is the machine-readable form of the same
+    # disclosure.
+    expose_api_docs: bool = False
+
 
 settings = Settings()
