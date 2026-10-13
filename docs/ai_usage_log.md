@@ -1173,3 +1173,81 @@ and no crash. The applied window is now printed in the panel title ("2017-2026
 · 10 yr") so the limit is visible rather than silently truncating history. The
 incomplete current year keeps its empty trailing months, which is honest - the
 months have not happened yet. oxlint and vite build clean.
+
+## Stage X1 -- Simulator UX cleanup (centered nav, run persistence, stepped controls, plain-language results)
+
+Frontend-only, all in `frontend/src/pages/Simulator.jsx` plus one class change
+in `frontend/src/components/TopNav.jsx`. Five logical commits on branch
+`uditbh123/simulator-ux`, each lint+build green before commit (no frontend test
+suite exists; `npm run lint` = oxlint, `npm run build` = vite).
+
+- **X1a - nav links centered, brand static.** `TopNav.jsx` links wrapper is now
+  `flex h-full min-w-0 flex-1 items-center justify-center overflow-x-auto`, so
+  the six links sit in the viewport center instead of hugging the left margin
+  next to the logo. Commit `3f25ba4`.
+
+- **X1b - the Simulator survives navigation and full reloads.** inputs AND
+  results previously reset to defaults every time you left the page. Now a
+  successful run writes a pointer - `{runId, portfolioId, savedAt}` - to
+  `localStorage` under `etf-simulator:last-run`, and on mount the page
+  re-fetches `GET /simulation-runs/:id` (the run cache is authoritative, so
+  localStorage stays tiny) and re-applies run params + the portfolio's name and
+  holdings. Only success writes the pointer; a failed re-run leaves the last
+  good run restorable. A stale pointer (run evicted / DB reset) degrades to the
+  empty state because the restore fetch failing drops the key. `localStorage`
+  not `sessionStorage` deliberately - the requirement is surviving a full
+  reload. Restore never auto-fires a simulation; a "Restored from your last
+  run" chip with a "Run again" button makes the provenance visible. Deep links
+  (`?holdings`, `?portfolio`) take precedence over the stored pointer, matching
+  the existing "a search refills the form" behaviour. Commit `a5355d8`.
+
+- **X1c - controls are now three labeled sections.** The left column was a flat
+  list of sliders and switches. It now reads "1 · Your plan" (balance,
+  contribution, horizon), "2 · Portfolio" (select, name, holdings editor), and
+  "3 · Advanced (optional)" - sentiment, inflation, capital-gains tax and the
+  crisis replay control - collapsed by default. The crisis replay's *chart*
+  stays in the results area; only its trigger moved to Advanced. A one-sentence
+  page subtitle explains what the page does. Commit `efd4494`.
+
+- **X1d - results speak plainly, colour means something.** The old stat cards
+  ("Best case (90th)", "Median outcome") duplicated what the insights cards
+  showed and nothing explained what a percentile is. Headline cards now read
+  "Chance of profit / Typical outcome / Bad case (1 in 10) / Typical worst
+  crash", each with a one-line explanation under the value, and the duplicated
+  median/p10 figures were removed from the insights panel (which now shows only
+  "Good case (9 in 10)" and "Upside / downside"). Percentile, drawdown and
+  upside/downside meaning live in native-tooltip info icons (`Info`, with
+  `sr-only` text) instead of card text. pos/neg colouring is now reserved for
+  profit/loss semantics (chance-of-profit, drawdown, upside/downside); plain
+  dollar figures stay neutral so colour never invents an up/down judgement.
+  A "How to read this chart" caption under the growth fan chart matches what it
+  draws (median line, 10th-90th band, real paths). Inline holdings validation
+  mirrors the backend weight rule (fractions `(0,1]` summing to 1.0 ->
+  percents greater than 0 summing to 100) and blocks an invalid run with a form
+  error before the API call. Also fixed a latent restore bug from X1b: the
+  `?? 120` fallback in `setHorizonYears(Number(run.params.horizon_months) ?? 120)`
+  coalesced *after* `Number()`, so a run missing `horizon_months` restored
+  `NaN` instead of 120 - now `Number(run.params.horizon_months ?? 120)`, matching
+  the file's other two coalescing patterns. Commit `9f0dcd7`.
+
+- **X1e - final-value distribution restored, duplicate trajectory chart
+  removed.** A frontend inventory ("S3") found two things recovered or removed:
+  (1) the 20-bin final-value histogram (Stage J, commit `e2cdb75`) had been
+  dropped in a later pass with no replacement - it is back (`BarChart` from
+  `stats.histogram.bin_edges/counts`, ink bars, tooltip showing the bin's real
+  range + path count, median and total-contributed marker lines skipped when
+  they fall outside the binned range); (2) the "Value trajectory" chart plotted
+  the identical p10/p50/p90 paths as the growth fan chart one panel below, so
+  it was removed along with its contributed/book-value line and tooltip. The
+  insights panel now reads stat cards -> insight cards -> histogram with no
+  repeated series. Commit `d44b170`.
+
+- **Verification:** oxlint clean and vite build green after every commit
+  (Simulator chunk 45.2 kB raw before X1 -> 46.4 kB after, entry chunk
+  unchanged). No backend changes; the histogram and caps come from the existing
+  `stats.histogram` payload and `app/schemas.py` validation. The five commits:
+  `3f25ba4`, `a5355d8`, `efd4494`, `9f0dcd7`, `d44b170` (branch
+  `uditbh123/simulator-ux`, not pushed to `main`; this entry is the docs commit).
+
+- **Files changed:** `frontend/src/pages/Simulator.jsx`,
+  `frontend/src/components/TopNav.jsx`, `docs/ai_usage_log.md`.
