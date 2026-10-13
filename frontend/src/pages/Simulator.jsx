@@ -13,6 +13,7 @@ import {
 import {
   Activity,
   Calculator,
+  ChevronRight,
   Gauge,
   History,
   Landmark,
@@ -252,6 +253,7 @@ export default function Simulator() {
   const [useSentiment, setUseSentiment] = useState(false)
   const [adjustForInflation, setAdjustForInflation] = useState(false)
   const [applyCapitalGainsTax, setApplyCapitalGainsTax] = useState(false)
+  const [advancedOpen, setAdvancedOpen] = useState(false)
 
   const [phase, setPhase] = useState('idle') // idle | running | done
   const [result, setResult] = useState(null)
@@ -658,6 +660,11 @@ export default function Simulator() {
 
     return (
       <div className="space-y-4">
+        <p className="max-w-prose text-sm text-ink-soft">
+          Enter your starting balance, monthly contribution and holdings, then run
+          the simulation to see the range of outcomes across 1,000 simulated
+          futures for your portfolio.
+        </p>
         {restoredFrom && (
           <div className="flex flex-wrap items-center gap-2">
             <span className="chip" title="The inputs and results from your last successful run were brought back when this page loaded. Nothing was re-simulated automatically.">
@@ -690,157 +697,221 @@ export default function Simulator() {
           </div>
 
           <form className="space-y-5 p-4" onSubmit={runSimulation}>
-            <label className="block">
-              <span className="field-label">
-                <span>Portfolio</span>
-                <span className="font-mono text-xs normal-case text-ink-faint">
-                  {selectedPortfolioId ? 'saves to this portfolio' : 'creates a new one'}
-                </span>
-              </span>
-              <select
-                className="select"
-                value={selectedPortfolioId ?? ''}
-                onChange={(event) => {
-                  const value = event.target.value
-                  if (!value) {
-                    setSelectedPortfolioId(null)
-                    return
-                  }
-                  const id = Number(value)
-                  if (id === selectedPortfolioId) return
-                  setSelectedPortfolioId(id)
-                  fetchJSON(`/portfolios/${id}`)
-                    .then(applyPortfolio)
-                    .catch(() => {})
-                }}
-              >
-                <option value="">New portfolio…</option>
-                {portfolios.map((portfolio) => (
-                  <option key={portfolio.id} value={portfolio.id}>
-                    {portfolio.name}
-                  </option>
-                ))}
-              </select>
-            </label>
+            <section className="space-y-4">
+              <h2 className="text-xs font-semibold uppercase tracking-widest text-ink-soft">
+                1 · Your plan
+              </h2>
 
-            <label className="block">
-              <span className="field-label">Portfolio name</span>
-              <input
-                type="text"
-                className="input"
-                value={name}
-                onChange={updateSetting(setName)}
+              <FieldSlider
+                icon={Wallet}
+                label="Current balance"
+                value={initialBalance}
+                min={0}
+                max={500000}
+                step={1000}
+                onChange={updateSetting(setInitialBalance)}
+                render={(v) => formatCurrency(Number(v))}
               />
-            </label>
 
-            <FieldSlider
-              icon={Wallet}
-              label="Current balance"
-              value={initialBalance}
-              min={0}
-              max={500000}
-              step={1000}
-              onChange={updateSetting(setInitialBalance)}
-              render={(v) => formatCurrency(Number(v))}
-            />
+              <FieldSlider
+                icon={TrendingUp}
+                label="Monthly contribution"
+                value={contribution}
+                min={0}
+                max={2000}
+                step={25}
+                onChange={updateSetting(setContribution)}
+                render={(v) => `${v} /mo`}
+              />
 
-            <FieldSlider
-              icon={TrendingUp}
-              label="Monthly contribution"
-              value={contribution}
-              min={0}
-              max={2000}
-              step={25}
-              onChange={updateSetting(setContribution)}
-              render={(v) => `${v} /mo`}
-            />
+              <FieldSlider
+                icon={Gauge}
+                label="Investment horizon"
+                value={horizonYears}
+                min={1}
+                max={50}
+                step={1}
+                onChange={updateSetting(setHorizonYears)}
+                render={(v) => `${v} yr`}
+              />
+            </section>
 
-            <FieldSlider
-              icon={Gauge}
-              label="Investment horizon"
-              value={horizonYears}
-              min={1}
-              max={50}
-              step={1}
-              onChange={updateSetting(setHorizonYears)}
-              render={(v) => `${v} yr`}
-            />
+            <section className="space-y-4">
+              <h2 className="text-xs font-semibold uppercase tracking-widest text-ink-soft">
+                2 · Portfolio
+              </h2>
 
-            <div>
-              <span className="mb-1.5 block text-xs font-medium uppercase tracking-widest text-ink-faint">
-                Holdings
-              </span>
-              <div className="space-y-2">
-                {holdings.map((holding, index) => (
-                  <div key={index} className="flex items-center gap-1.5">
-                    <select
-                      className="select h-8 min-w-0 flex-1"
-                      value={holding.symbol}
-                      onChange={(e) => updateHolding(index, 'symbol', e.target.value)}
-                    >
-                      {tickers
-                        .filter((t) => t.price_rows > 0)
-                        .map((t) => (
-                          <option key={t.symbol} value={t.symbol}>
-                            {t.symbol} — {t.name}
+              <label className="block">
+                <span className="field-label">
+                  <span>Portfolio</span>
+                  <span className="font-mono text-xs normal-case text-ink-faint">
+                    {selectedPortfolioId ? 'saves to this portfolio' : 'creates a new one'}
+                  </span>
+                </span>
+                <select
+                  className="select"
+                  value={selectedPortfolioId ?? ''}
+                  onChange={(event) => {
+                    const value = event.target.value
+                    if (!value) {
+                      setSelectedPortfolioId(null)
+                      return
+                    }
+                    const id = Number(value)
+                    if (id === selectedPortfolioId) return
+                    setSelectedPortfolioId(id)
+                    fetchJSON(`/portfolios/${id}`)
+                      .then(applyPortfolio)
+                      .catch(() => {})
+                  }}
+                >
+                  <option value="">New portfolio…</option>
+                  {portfolios.map((portfolio) => (
+                    <option key={portfolio.id} value={portfolio.id}>
+                      {portfolio.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <label className="block">
+                <span className="field-label">Portfolio name</span>
+                <input
+                  type="text"
+                  className="input"
+                  value={name}
+                  onChange={updateSetting(setName)}
+                />
+              </label>
+
+              <div>
+                <span className="mb-1.5 block text-xs font-medium uppercase tracking-widest text-ink-faint">
+                  Holdings
+                </span>
+                <div className="space-y-2">
+                  {holdings.map((holding, index) => (
+                    <div key={index} className="flex items-center gap-1.5">
+                      <select
+                        className="select h-8 min-w-0 flex-1"
+                        value={holding.symbol}
+                        onChange={(e) => updateHolding(index, 'symbol', e.target.value)}
+                      >
+                        {tickers
+                          .filter((t) => t.price_rows > 0)
+                          .map((t) => (
+                            <option key={t.symbol} value={t.symbol}>
+                              {t.symbol} — {t.name}
+                            </option>
+                          ))}
+                      </select>
+                      <div className="flex h-8 w-16 items-center gap-0.5 border border-edge bg-white px-1.5 focus-within:border-ink">
+                        <input
+                          type="number"
+                          min="0"
+                          max="100"
+                          step="1"
+                          className="w-full bg-transparent text-right font-mono text-sm text-ink outline-none"
+                          value={holding.weight}
+                          onChange={(e) => updateHolding(index, 'weight', e.target.value)}
+                        />
+                        <span className="text-xs text-ink-faint">%</span>
+                      </div>
+                      <button
+                        type="button"
+                        className="btn btn-danger-ghost h-8 w-8 items-center justify-center p-0"
+                        onClick={() => removeHolding(index)}
+                        disabled={holdings.length <= 1}
+                        aria-label="Remove holding"
+                      >
+                        <Trash size={13} strokeWidth={1.8} />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+                <button type="button" className="btn mt-2 w-full" onClick={addHolding}>
+                  <Plus size={13} strokeWidth={2} />
+                  Add holding
+                </button>
+              </div>
+            </section>
+
+            <section className="space-y-4">
+              <h2>
+                <button
+                  type="button"
+                  className="flex w-full items-center justify-between text-xs font-semibold uppercase tracking-widest text-ink-soft transition-colors hover:text-ink"
+                  aria-expanded={advancedOpen}
+                  onClick={() => setAdvancedOpen((open) => !open)}
+                >
+                  <span>3 · Advanced (optional)</span>
+                  <ChevronRight
+                    size={14}
+                    strokeWidth={1.8}
+                    className={`transition-transform ${advancedOpen ? 'rotate-90' : ''}`}
+                  />
+                </button>
+              </h2>
+
+              {advancedOpen && (
+                <div className="space-y-4">
+                  <ToggleSwitch
+                    checked={useSentiment}
+                    onChange={setUseSentiment}
+                    title="AI Sentiment Adjustment (Includes Geopolitical Risk)"
+                    subtitle="Scales historical volatility by recent FinBERT news sentiment."
+                  />
+
+                  {/* Real-world basis switches. Both re-run the simulation on
+                      the server rather than post-processing the chart locally,
+                      because they change the simulated distribution's reported
+                      units and the stats are derived from the same adjusted
+                      paths. */}
+                  <ToggleSwitch
+                    checked={adjustForInflation}
+                    onChange={setAdjustForInflation}
+                    icon={TrendingDown}
+                    title="Adjust for 3% Inflation"
+                    subtitle="Restates paths and contributions in today's dollars."
+                  />
+                  <ToggleSwitch
+                    checked={applyCapitalGainsTax}
+                    onChange={setApplyCapitalGainsTax}
+                    icon={Landmark}
+                    title="Apply Capital Gains Tax"
+                    subtitle="15% on the final profit of each path, charged once at liquidation."
+                  />
+
+                  <div>
+                    <span className="field-label">Replay a historic crisis</span>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <select
+                        className="select min-w-[200px] flex-1"
+                        value={crisis}
+                        onChange={(e) => setCrisis(e.target.value)}
+                      >
+                        {CRISIS_OPTIONS.map((c) => (
+                          <option key={c.value} value={c.value}>
+                            {c.label}
                           </option>
                         ))}
-                    </select>
-                    <div className="flex h-8 w-16 items-center gap-0.5 border border-edge bg-white px-1.5 focus-within:border-ink">
-                      <input
-                        type="number"
-                        min="0"
-                        max="100"
-                        step="1"
-                        className="w-full bg-transparent text-right font-mono text-sm text-ink outline-none"
-                        value={holding.weight}
-                        onChange={(e) => updateHolding(index, 'weight', e.target.value)}
-                      />
-                      <span className="text-xs text-ink-faint">%</span>
+                      </select>
+                      <button
+                        type="button"
+                        className="btn btn-primary shrink-0"
+                        onClick={replayCrisis}
+                        disabled={crisisLoading}
+                      >
+                        <History size={14} strokeWidth={2} />
+                        {crisisLoading ? 'Running…' : 'Replay crisis'}
+                      </button>
                     </div>
-                    <button
-                      type="button"
-                      className="btn btn-danger-ghost h-8 w-8 items-center justify-center p-0"
-                      onClick={() => removeHolding(index)}
-                      disabled={holdings.length <= 1}
-                      aria-label="Remove holding"
-                    >
-                      <Trash size={13} strokeWidth={1.8} />
-                    </button>
+                    {crisisError && (
+                      <p className="mt-1 text-xs text-neg">Error: {crisisError}</p>
+                    )}
                   </div>
-                ))}
-              </div>
-              <button type="button" className="btn mt-2 w-full" onClick={addHolding}>
-                <Plus size={13} strokeWidth={2} />
-                Add holding
-              </button>
-            </div>
-
-            <ToggleSwitch
-              checked={useSentiment}
-              onChange={setUseSentiment}
-              title="AI Sentiment Adjustment (Includes Geopolitical Risk)"
-              subtitle="Scales historical volatility by recent FinBERT news sentiment."
-            />
-
-            {/* Real-world basis switches. Both re-run the simulation on the
-                server rather than post-processing the chart locally, because
-                they change the simulated distribution's reported units and the
-                stats are derived from the same adjusted paths. */}
-            <ToggleSwitch
-              checked={adjustForInflation}
-              onChange={setAdjustForInflation}
-              icon={TrendingDown}
-              title="Adjust for 3% Inflation"
-              subtitle="Restates paths and contributions in today's dollars."
-            />
-            <ToggleSwitch
-              checked={applyCapitalGainsTax}
-              onChange={setApplyCapitalGainsTax}
-              icon={Landmark}
-              title="Apply Capital Gains Tax"
-              subtitle="15% on the final profit of each path, charged once at liquidation."
-            />
+                </div>
+              )}
+            </section>
 
             {error && <p className="text-xs text-neg">Error: {error}</p>}
 
@@ -1225,138 +1296,99 @@ export default function Simulator() {
                 </p>
               )}
 
-              <div className="panel">
-                <div className="panel-title">
-                  <span>Replay a crisis</span>
-                  {crisisLoading && (
-                    <span className="flex items-center gap-1 font-mono text-xs normal-case text-accent">
-                      <span className="h-1.5 w-1.5 bg-accent" />
-                      running
+              {crisisData && (
+                <div className="panel">
+                  <div className="panel-title">
+                    <span>Crisis replay</span>
+                    <span className="flex items-center gap-3 font-mono text-xs normal-case text-ink-faint">
+                      <span className="flex items-center gap-1.5">
+                        <span className="h-0.5 w-4 bg-accent" /> simulated median
+                      </span>
+                      <span className="flex items-center gap-1.5">
+                        <span className="h-0.5 w-4 bg-pos" /> real trajectory
+                      </span>
+                      <span className="flex items-center gap-1.5">
+                        <span className="h-2 w-4 bg-accent opacity-20" /> 10–90th
+                      </span>
                     </span>
-                  )}
-                </div>
-
-                <div className="space-y-3 p-4">
-                  <div className="flex flex-wrap items-end gap-2">
-                    <div className="min-w-[220px] flex-1">
-                      <span className="field-label">Scenario</span>
-                      <select
-                        className="select"
-                        value={crisis}
-                        onChange={(e) => setCrisis(e.target.value)}
-                      >
-                        {CRISIS_OPTIONS.map((c) => (
-                          <option key={c.value} value={c.value}>
-                            {c.label}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                    <button
-                      type="button"
-                      className="btn btn-primary"
-                      onClick={replayCrisis}
-                      disabled={crisisLoading}
-                    >
-                      <History size={14} strokeWidth={2} />
-                      Replay crisis
-                    </button>
                   </div>
-
-                  {crisisError && <p className="text-xs text-neg">Error: {crisisError}</p>}
-
-                  {crisisData && (
-                    <div className="border border-edge p-3">
-                      <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-                        <span className="text-xs font-semibold uppercase tracking-widest text-ink-soft">
-                          {crisisLabel(crisisData.crisis)} · {crisisData.window.start} →
-                          {' '}{crisisData.window.end}
-                        </span>
-                        <span className="flex items-center gap-3 font-mono text-xs text-ink-faint">
-                          <span className="flex items-center gap-1.5">
-                            <span className="h-0.5 w-4 bg-accent" /> simulated
-                            median
-                          </span>
-                          <span className="flex items-center gap-1.5">
-                            <span className="h-0.5 w-4 bg-pos" /> real trajectory
-                          </span>
-                          <span className="flex items-center gap-1.5">
-                            <span className="h-2 w-4 bg-accent opacity-20" />{' '}
-                            10–90th
-                          </span>
-                        </span>
-                      </div>
-                      <div className="h-[260px]">
-                        <div
-                          className="h-full w-full"
-                          role="img"
-                          aria-label={`Crisis scenario replay chart comparing median portfolio value against a baseline buy-and-hold during ${crisisLabel(crisisData.crisis)}`}
+                  <div className="p-3">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <span className="text-xs font-semibold uppercase tracking-widest text-ink-soft">
+                        {crisisLabel(crisisData.crisis)} · {crisisData.window.start} →
+                        {' '}{crisisData.window.end}
+                      </span>
+                    </div>
+                    <div className="mt-2 h-[300px]">
+                      <div
+                        className="h-full w-full"
+                        role="img"
+                        aria-label={`Crisis scenario replay chart comparing median portfolio value against a baseline buy-and-hold during ${crisisLabel(crisisData.crisis)}`}
+                      >
+                      <ResponsiveContainer width="100%" height="100%">
+                        <ComposedChart
+                          data={crisisChart}
+                          margin={{ top: 8, right: 16, bottom: 8, left: 8 }}
                         >
-                        <ResponsiveContainer width="100%" height="100%">
-                          <ComposedChart
-                            data={crisisChart}
-                            margin={{ top: 8, right: 16, bottom: 8, left: 8 }}
-                          >
-                            <CartesianGrid
-                              stroke="var(--chart-grid)"
-                              strokeDasharray="3 3"
-                              vertical={false}
-                            />
-                            <XAxis
-                              dataKey="month"
-                              tick={{ fill: 'var(--chart-axis)', fontSize: 12 }}
-                              tickLine={false}
-                              axisLine={{ stroke: 'var(--chart-grid)' }}
-                              tickFormatter={(m) => `${m}m`}
-                            />
-                            <YAxis
-                              tick={{ fill: 'var(--chart-axis)', fontSize: 12 }}
-                              tickFormatter={(v) => `${Math.round(v / 1000)}k`}
-                              tickLine={false}
-                              axisLine={false}
-                              width={48}
-                            />
-                            <Tooltip
-                              content={<CrisisFanTooltip />}
-                              cursor={{
-                                stroke: 'color-mix(in srgb, var(--chart-line) 45%, transparent)',
-                                strokeDasharray: '3 3',
-                              }}
-                            />
-                            <Area
-                              type="monotone"
-                              dataKey="band"
-                              stroke="none"
-                              fill="var(--chart-line)"
-                              fillOpacity={0.1}
-                              isAnimationActive={false}
-                              activeDot={false}
-                            />
-                            <Line
-                              type="monotone"
-                              dataKey="median"
-                              stroke="var(--chart-line)"
-                              strokeWidth={2}
-                              dot={false}
-                              activeDot={{ r: 3 }}
-                            />
-                            <Line
-                              type="monotone"
-                              dataKey="actual"
-                              stroke="var(--up)"
-                              strokeWidth={2}
-                              strokeDasharray="4 2"
-                              dot={false}
-                              activeDot={{ r: 3, fill: 'var(--up)' }}
-                            />
-                          </ComposedChart>
-                        </ResponsiveContainer>
-                        </div>
+                          <CartesianGrid
+                            stroke="var(--chart-grid)"
+                            strokeDasharray="3 3"
+                            vertical={false}
+                          />
+                          <XAxis
+                            dataKey="month"
+                            tick={{ fill: 'var(--chart-axis)', fontSize: 12 }}
+                            tickLine={false}
+                            axisLine={{ stroke: 'var(--chart-grid)' }}
+                            tickFormatter={(m) => `${m}m`}
+                          />
+                          <YAxis
+                            tick={{ fill: 'var(--chart-axis)', fontSize: 12 }}
+                            tickFormatter={(v) => `${Math.round(v / 1000)}k`}
+                            tickLine={false}
+                            axisLine={false}
+                            width={48}
+                          />
+                          <Tooltip
+                            content={<CrisisFanTooltip />}
+                            cursor={{
+                              stroke: 'color-mix(in srgb, var(--chart-line) 45%, transparent)',
+                              strokeDasharray: '3 3',
+                            }}
+                          />
+                          <Area
+                            type="monotone"
+                            dataKey="band"
+                            stroke="none"
+                            fill="var(--chart-line)"
+                            fillOpacity={0.1}
+                            isAnimationActive={false}
+                            activeDot={false}
+                          />
+                          <Line
+                            type="monotone"
+                            dataKey="median"
+                            stroke="var(--chart-line)"
+                            strokeWidth={2}
+                            dot={false}
+                            activeDot={{ r: 3 }}
+                          />
+                          <Line
+                            type="monotone"
+                            dataKey="actual"
+                            stroke="var(--up)"
+                            strokeWidth={2}
+                            strokeDasharray="4 2"
+                            dot={false}
+                            activeDot={{ r: 3, fill: 'var(--up)' }}
+                          />
+                        </ComposedChart>
+                      </ResponsiveContainer>
                       </div>
                     </div>
-                  )}
+                  </div>
                 </div>
-              </div>
+              )}
             </>
           )}
         </section>
