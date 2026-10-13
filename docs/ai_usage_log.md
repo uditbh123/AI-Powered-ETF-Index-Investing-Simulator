@@ -1251,3 +1251,64 @@ suite exists; `npm run lint` = oxlint, `npm run build` = vite).
 
 - **Files changed:** `frontend/src/pages/Simulator.jsx`,
   `frontend/src/components/TopNav.jsx`, `docs/ai_usage_log.md`.
+
+## Stage X2 - blank-page regression repaired, nav truly centered, timestamp removed
+
+Human browser verification after X1 caught a hard failure neither oxlint nor
+vite build can: the Simulator page rendered **blank** whenever a result existed
+(a fresh run or an auto-restored run), because `statCards` was built from
+`stats` before the `const stats = result?.stats` line ran. A `const` binding
+is in the temporal dead zone until its own line executes, so reading it earlier
+throws `ReferenceError: Cannot access 'stats' before initialization` and React
+unmounts the tree - a white page. Lint and build cannot flag it: oxlint does not
+enforce `no-use-before-define` across locals, and vite performs no type-check.
+This is the second incident where the automated gates stayed green on a
+page-breaking bug (X1b's `NaN` horizon was the first); both were caught by a
+human reloading in a real browser. The regression entered in X1d (`9f0dcd7`)
+when `statCards` began referencing `stats` without the declaration being moved
+above it.
+
+Three commits on branch `uditbh123/simulator-ux`, each lint+build green:
+
+- **X2a - crash fix + restore hardening.** `frontend/src/pages/Simulator.jsx`:
+  the `const stats = result?.stats` declaration is now hoisted above `statCards`
+  (it previously sat ~40 lines below, straddling the array literal). Beyond the
+  TDZ, every field a restored run feeds into the new X1 components is guarded so
+  a weird-but-valid payload degrades to a partial render instead of a crash:
+  `bandPath`/`crisisLevel` reach percentiles via `result?.percentiles?.find`;
+  the Typical-outcome and Bad-case cards fall back to
+  `stats?.final_percentiles?.p50/p10 ?? 0` when `result.summary` is missing; the
+  20-bin histogram validates `bin_edges`/`counts` are non-empty arrays before
+  mapping, so an insights-less legacy run draws the panels with no bars rather
+  than dereferencing undefined. The restore effect's failure path now emits a
+  single `console.warn('[simulator] unable to restore last run, starting
+  empty:', e)` before dropping the pointer - any restore failure (evicted run,
+  corrupt run id, network error) degrades to the clean empty form. Commit
+  `941f57f`.
+- **X2b - nav links centered on the full header width.** The X1 flex-1 link row
+  centered the six links only within the space left over after the brand, so
+  they sat offset toward the right at typical window widths. `TopNav.jsx` is now
+  a `1fr / minmax(0,auto) / 1fr` grid: the two flexible tracks share the
+  leftover width equally, which places the middle link track at the exact center
+  of the full viewport regardless of brand width. `minmax(0,auto)` lets the link
+  track shrink and scroll horizontally on narrow screens instead of blowing the
+  header out; the brand keeps its pinned-left slot and never overlaps the links.
+  Commit `4b3f21e`.
+- **X2c - restore timestamp UI removed.** The "Restored from your last run"
+  chip previously appended `· <savedAt locale string>` - a clock/time display
+  added in X1 that was not part of the requested affordance. It is now exactly
+  one short line plus the "Run again" button; `savedAt` was dropped from the
+  restored-from state and from the persisted localStorage payload (the timestamp
+  display was its only consumer). Commit `1fd3e75`.
+
+**Verification.** oxlint clean and vite build green after every commit (Simulator
+chunk 69.7 kB raw, unchanged in size). No backend changes. Human checklist after
+a hard reload: (a) with a valid stored run the page restores inputs and results;
+(b) with a corrupt run id (edit the localStorage key) the page renders the empty
+form and drops the pointer; (c) with the key removed the page renders the empty
+form. In every case the console shows no uncaught error and the nav is centered
+on the full window. The four commits on branch `uditbh123/simulator-ux`:
+`941f57f`, `4b3f21e`, `1fd3e75`, plus this docs commit; not merged to `main`.
+
+- **Files changed:** `frontend/src/pages/Simulator.jsx`,
+  `frontend/src/components/TopNav.jsx`, `docs/ai_usage_log.md`.
