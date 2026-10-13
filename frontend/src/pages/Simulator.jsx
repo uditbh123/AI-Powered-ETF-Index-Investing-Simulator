@@ -346,7 +346,7 @@ export default function Simulator() {
     }
     if (!raw?.runId) return
 
-    setRestoredFrom({ runId: raw.runId, savedAt: raw.savedAt ?? null })
+    setRestoredFrom({ runId: raw.runId })
 
     async function restore() {
       try {
@@ -492,7 +492,6 @@ export default function Simulator() {
           JSON.stringify({
             runId: sim.run_id,
             portfolioId: sim.portfolio_id,
-            savedAt: new Date().toISOString(),
           }),
         )
       } catch {
@@ -745,8 +744,6 @@ export default function Simulator() {
             <span className="chip" title="The inputs and results from your last successful run were brought back when this page loaded. Nothing was re-simulated automatically.">
               <History size={11} strokeWidth={2} className="text-ink-faint" />
               Restored from your last run
-              {restoredFrom.savedAt &&
-                ` · ${new Date(restoredFrom.savedAt).toLocaleString()}`}
             </span>
             <button
               type="button"
