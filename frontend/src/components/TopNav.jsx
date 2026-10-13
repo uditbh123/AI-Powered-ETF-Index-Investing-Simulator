@@ -42,7 +42,10 @@ export default function TopNav() {
           </span>
         </NavLink>
 
-        <div className="flex h-full min-w-0 flex-1 items-center overflow-x-auto">
+        {/* The link row takes all remaining width and centers itself within
+            it, so the six links sit centered in the header between the brand
+            and the right edge; the brand is untouched. */}
+        <div className="flex h-full min-w-0 flex-1 items-center justify-center overflow-x-auto">
           {NAV_LINKS.map(({ to, label, end }) => (
             <NavLink
               key={to}

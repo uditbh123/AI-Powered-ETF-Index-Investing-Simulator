@@ -1,10 +1,13 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useLocation } from 'react-router-dom'
 import {
   Area,
+  Bar,
+  BarChart,
   CartesianGrid,
   ComposedChart,
   Line,
+  ReferenceLine,
   ResponsiveContainer,
   Tooltip,
   XAxis,
@@ -13,8 +16,10 @@ import {
 import {
   Activity,
   Calculator,
+  ChevronRight,
   Gauge,
   History,
+  Info,
   Landmark,
   Percent,
   Play,
@@ -31,6 +36,32 @@ import { queryToHoldings } from '../strategyHoldings'
 import { usePageTitle } from '../hooks/usePageTitle'
 
 const DEFAULT_HOLDINGS = [{ symbol: 'SPY', weight: 100 }]
+
+// Mirrors the backend's holding-weight rule (app/schemas.py): every weight is
+// a percentage in (0, 100] and the holding total must be exactly 100, since
+// the API converts these to fractions in (0, 1] summing to 1.0 before running.
+// The UI edits percents, so "must total 100" is the user-truth the form shows.
+function holdingsValidation(rows) {
+  const issues = []
+  if (rows.some((h) => Number(h.weight) <= 0)) {
+    issues.push('Every holding needs a weight greater than 0%.')
+  }
+  const total = rows.reduce((sum, h) => sum + (Number(h.weight) || 0), 0)
+  if (total !== 100) {
+    issues.push(`Holdings must total exactly 100% — currently ${total}%.`)
+  }
+  return issues
+}
+
+// Persistent pointer to the last successful run, so inputs AND results survive
+// navigating away and a full page reload. We persist the run_id, not the whole
+// response: the backend's sqlite run cache is the authoritative copy, and
+// restoring re-fetches `GET /simulation-runs/:id` (same JSON as the POST that
+// produced it). localStorage rather than sessionStorage on purpose -- the
+// requirement is to survive a real reload, not just a tab-scoped session. A
+// stale pointer (run evicted, DB reset) degrades to the empty state rather
+// than showing old numbers, because the restore fetch failing drops the key.
+const LAST_RUN_KEY = 'etf-simulator:last-run'
 
 const CRISIS_OPTIONS = [
   { value: 'dot_com_2000', label: 'Dot-com bust (2000–2002)' },
@@ -144,29 +175,16 @@ function CrisisFanTooltip({ active, payload }) {
   )
 }
 
-function TrajectoryTooltip({ active, payload }) {
+function HistogramTooltip({ active, payload }) {
   if (!active || !payload?.length) return null
   const point = payload[0].payload
-  const rows = [
-    { label: 'best p90', value: point.high },
-    { label: 'median p50', value: point.median },
-    { label: 'worst p10', value: point.low },
-    { label: 'contributed', value: point.contributed },
-  ]
   return (
     <div className="border border-ink bg-base-panel px-2 py-1.5">
       <div className="text-11px uppercase tracking-widest text-ink-faint">
-        Year {Math.floor(point.month / 12)} · month {point.month % 12}
+        {formatCurrency(point.low)} – {formatCurrency(point.high)}
       </div>
-      <div className="mt-1 space-y-0.5">
-        {rows.map(({ label, value }) => (
-          <div key={label} className="flex items-center justify-between gap-5">
-            <span className="text-11px uppercase tracking-widest text-ink-faint">
-              {label}
-            </span>
-            <span className="num text-xs text-ink">{formatCurrency(value)}</span>
-          </div>
-        ))}
+      <div className="mt-1 num text-xs text-ink">
+        {point.count} {point.count === 1 ? 'path' : 'paths'}
       </div>
     </div>
   )
@@ -211,6 +229,18 @@ function ToggleSwitch({ checked, onChange, title, subtitle, icon: Icon = Sparkle
   )
 }
 
+// Tiny native-tooltip helper: a Lucide info icon that also exposes the
+// explanation to screen readers, so short labels stay short and the detail
+// is one hover/indication away rather than baked into the card text.
+function LabelTooltip({ text }) {
+  return (
+    <span className="inline-flex items-center" title={text}>
+      <Info size={11} strokeWidth={1.8} className="text-ink-faint" aria-hidden="true" />
+      <span className="sr-only">{text}</span>
+    </span>
+  )
+}
+
 export default function Simulator() {
   usePageTitle('Simulator — ETF Simulator')
 
@@ -242,6 +272,7 @@ export default function Simulator() {
   const [useSentiment, setUseSentiment] = useState(false)
   const [adjustForInflation, setAdjustForInflation] = useState(false)
   const [applyCapitalGainsTax, setApplyCapitalGainsTax] = useState(false)
+  const [advancedOpen, setAdvancedOpen] = useState(false)
 
   const [phase, setPhase] = useState('idle') // idle | running | done
   const [result, setResult] = useState(null)
@@ -253,6 +284,7 @@ export default function Simulator() {
   const [crisisError, setCrisisError] = useState(null)
   const [monthlyReturns, setMonthlyReturns] = useState(null)
   const [monthlyReturnsError, setMonthlyReturnsError] = useState(null)
+  const [restoredFrom, setRestoredFrom] = useState(null)
 
   useEffect(() => {
     fetchJSON('/tickers')
@@ -293,6 +325,70 @@ export default function Simulator() {
     }
   }, [search, selectedPortfolioId, applyPortfolio])
 
+  // Restore the last successful run on mount. Deep links (strategy presets,
+  // ticker, portfolio) take precedence and skip the restore entirely; a
+  // restored run sets inputs and result but never re-fires the simulation.
+  // Runs once per mount against the search string this page was opened with,
+  // so editing the URL later does not re-trigger a restore.
+  const mountSearch = useRef(search)
+  useEffect(() => {
+    if (['holdings', 'ticker', 'portfolio'].some((key) =>
+      new URLSearchParams(mountSearch.current).has(key),
+    )) {
+      return
+    }
+    let cancelled = false
+    let raw = null
+    try {
+      raw = JSON.parse(localStorage.getItem(LAST_RUN_KEY) ?? 'null')
+    } catch {
+      raw = null
+    }
+    if (!raw?.runId) return
+
+    setRestoredFrom({ runId: raw.runId, savedAt: raw.savedAt ?? null })
+
+    async function restore() {
+      try {
+        const run = await fetchJSON(`/simulation-runs/${raw.runId}`)
+        if (cancelled || !run?.params) return
+        setResult(run)
+        setPhase('done')
+        setInitialBalance(Number(run.params.initial_balance ?? 10000))
+        setHorizonYears(Number(run.params.horizon_months ?? 120) / 12)
+        setContribution(Number(run.params.monthly_contribution ?? 200))
+        setUseSentiment(Boolean(run.params.use_sentiment))
+        setAdjustForInflation(Boolean(run.params.adjust_for_inflation))
+        setApplyCapitalGainsTax(Boolean(run.params.apply_capital_gains_tax))
+        // Name + holdings live on the portfolio, not on the run. If the
+        // portfolio is gone the run still renders; only the form defers to
+        // its defaults until the next successful run.
+        if (run.portfolio_id) {
+          const portfolio = await fetchJSON(`/portfolios/${run.portfolio_id}`)
+          if (!cancelled) {
+            setSelectedPortfolioId(portfolio.id)
+            setPortfolioId(portfolio.id)
+            applyPortfolio(portfolio)
+          }
+        }
+      } catch {
+        if (!cancelled) {
+          // Run no longer available (DB reset / evicted): drop the pointer so
+          // the empty state shows and the affordance does not linger.
+          localStorage.removeItem(LAST_RUN_KEY)
+          setRestoredFrom(null)
+          setPhase('idle')
+        }
+      }
+    }
+    restore()
+    return () => {
+      cancelled = true
+    }
+    // Intentionally mount-once: `restore` depends on the mount-time search.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
   useEffect(() => {
     if (!portfolioId || phase !== 'done') return
     let cancelled = false
@@ -327,10 +423,19 @@ export default function Simulator() {
   }
 
   async function runSimulation(event) {
-    event.preventDefault()
+    event?.preventDefault?.()
+    setRestoredFrom(null)
     setPhase('running')
     setError(null)
     setCrisisData(null)
+    // Inline copy of the backend's holding-weight rule, surfaced before the
+    // API call so the user fixes the form rather than decoding a 422.
+    const issues = holdingsValidation(holdings)
+    if (issues.length) {
+      setError(issues.join(' '))
+      setPhase('idle')
+      return
+    }
     try {
       // Weights are edited as percentages; the API stores fractions that sum
       // to 1.0, so a reused portfolio converts before PATCHing. The conversion
@@ -375,6 +480,22 @@ export default function Simulator() {
       })
       setResult(sim)
       setPhase('done')
+      // Remember this run so a later visit to /simulator restores the inputs
+      // and results (see the mount effect above). Only successful runs update
+      // the pointer; a failed re-run leaves the previous store intact.
+      try {
+        localStorage.setItem(
+          LAST_RUN_KEY,
+          JSON.stringify({
+            runId: sim.run_id,
+            portfolioId: sim.portfolio_id,
+            savedAt: new Date().toISOString(),
+          }),
+        )
+      } catch {
+        // Storage full/disabled: degrade to no persistence rather than failing
+        // the run the user just asked for.
+      }
     } catch (e) {
       setError(e.message)
       setPhase('idle')
@@ -432,32 +553,57 @@ export default function Simulator() {
 
   const statCards = result
     ? [
-        { icon: TrendingUp, label: 'Best case (90th)', value: result.summary.best_case_final_value, tone: 'tick-up' },
-        { icon: Gauge, label: 'Median outcome', value: result.summary.median_final_value, tone: 'text-accent' },
-        { icon: TrendingDown, label: 'Worst case (10th)', value: result.summary.worst_case_final_value, tone: 'tick-down' },
-      ]
+        // Only profit/loss semantics get pos/neg colour: chance-of-profit is a
+        // threshold verdict and the drawdown is a loss; plain dollar figures
+        // stay neutral so colour never invents an up/down judgement.
+        stats && {
+          icon: Percent,
+          label: 'Chance of profit',
+          value: `${(stats.probability_of_profit * 100).toFixed(0)}%`,
+          tone: stats.probability_of_profit >= 0.5 ? 'text-pos' : 'text-neg',
+          secondary: 'of simulated futures end in profit',
+        },
+        {
+          icon: Gauge,
+          label: 'Typical outcome',
+          value: formatCurrency(result.summary.median_final_value),
+          tone: 'text-ink',
+          secondary: 'half of futures end above this, half below',
+          tooltip:
+            'A percentile ranks simulated outcomes. The 50th (the median) is the middle outcome: half of futures end above it, half below.',
+        },
+        {
+          icon: TrendingDown,
+          label: 'Bad case (1 in 10)',
+          value: formatCurrency(result.summary.worst_case_final_value),
+          tone: 'text-ink',
+          secondary: 'only 1 in 10 futures end below this',
+          tooltip:
+            'The 10th percentile: only 1 in 10 simulated futures ends worse than this value.',
+        },
+        stats && {
+          icon: Activity,
+          label: 'Typical worst crash',
+          value: `\u2212${(stats.median_max_drawdown * 100).toFixed(0)}%`,
+          tone: 'text-neg',
+          secondary: 'the largest drop from a peak, on a typical future',
+          tooltip:
+            'Drawdown is the largest fall from a peak to a trough on a simulated future, shown as a percent of that peak.',
+        },
+      ].filter(Boolean)
     : []
 
   const stats = result?.stats
   const insightCards = stats
     ? [
         {
-          icon: Percent,
-          label: 'Probability of profit',
-          value: `${(stats.probability_of_profit * 100).toFixed(0)}%`,
-          tone: stats.probability_of_profit >= 0.5 ? 'text-pos' : 'text-neg',
-        },
-        {
-          icon: Gauge,
-          label: 'Median final value',
-          value: formatCurrency(stats.final_percentiles.p50),
-          tone: 'text-accent',
-        },
-        {
-          icon: TrendingDown,
-          label: 'Worst case (p10)',
-          value: formatCurrency(stats.final_percentiles.p10),
+          icon: TrendingUp,
+          label: 'Good case (9 in 10)',
+          value: formatCurrency(stats.final_percentiles.p90),
           tone: 'text-ink',
+          secondary: 'only 1 in 10 futures end above this',
+          tooltip:
+            'The 90th percentile: 9 in 10 simulated futures end below this value.',
         },
         {
           icon: Scale,
@@ -476,35 +622,20 @@ export default function Simulator() {
               : stats.upside_downside_ratio >= 1
                 ? 'text-pos'
                 : 'text-neg',
-          title:
+          secondary:
+            stats.upside_downside_ratio === null
+              ? 'no losing month across the simulated futures'
+              : 'average winning month vs how bad losing months get',
+          tooltip:
             stats.upside_downside_ratio === null
               ? 'No month was negative across the simulated paths, so downside deviation is zero and the ratio is undefined.'
               : 'Mean of positive months divided by the root-mean-square of negative months, across all simulated paths.',
         },
-        {
-          icon: Activity,
-          label: 'Median max drawdown',
-          value: `${(stats.median_max_drawdown * 100).toFixed(1)}%`,
-          tone: 'text-ink',
-        },
       ]
     : []
 
-  // Trajectory rows for the compact summary chart. `chartData` already carries
-  // the p10/p50/p90 paths from the run's percentile series; this only adds the
-  // book-value line at each month so the crossing point is readable. The
-  // contribution is applied at steps 1..horizon (never at step 0), which is
-  // why the run's own params are used rather than the live form state - the
-  // form may have been edited since the run was made, and a loaded portfolio
-  // carries its own monthly_contribution (which is not the slider's value).
-  //
-  // The book-value line must be deflated by the same factor as the paths when
-  // the inflation toggle is on. Leaving it nominal would draw a rising nominal
-  // line under a falling real line and imply the portfolio lost to inflation
-  // when it did not - the same units mismatch the backend avoids by deflating
-  // its own total_contributed. The rate is 0 when the toggle is off, and 0 is
-  // also the fallback for legacy cached runs that predate the `adjustments`
-  // block, so this is a no-op in both cases.
+  const validationIssues = holdingsValidation(holdings)
+
   // The `adjustments` block is persisted with the run's stats so a cached run
   // replays the same disclosure a fresh one produced. Defaulted here because
   // runs cached before this feature have no such block; every field is read
@@ -519,17 +650,35 @@ export default function Simulator() {
     ...(result?.stats?.adjustments ?? {}),
   }
 
-  const inflationRate = Number(adjustments.inflation_rate ?? 0)
-  const trajectoryData = result?.params
-    ? chartData.map((row) => ({
-        ...row,
-        contributed: Math.round(
-          (Number(result.params.initial_balance ?? 0) +
-            Number(result.params.monthly_contribution ?? 0) * row.month) /
-            Math.pow(1 + inflationRate, row.month / 12),
-        ),
-      }))
+  // Final-value distribution from the run's 20-bin histogram. Each bin becomes
+  // a bar keyed by its midpoint label; the tooltip shows the bin's real range
+  // rather than the rounded label. The empty series for a legacy (stats-null)
+  // run leaves the panel with no bars to draw.
+  const histogramData = stats
+    ? stats.histogram.bin_edges.slice(0, -1).map((low, i) => {
+        const high = stats.histogram.bin_edges[i + 1]
+        const mid = (low + high) / 2
+        return {
+          count: stats.histogram.counts[i],
+          low,
+          high,
+          label: `${Math.round(mid / 1000)}k`,
+          value: mid,
+        }
+      })
     : []
+
+  // Maps a value to its bin's bar so p50 and total-contributed can be drawn as
+  // reference lines, or skipped entirely when the value falls outside the
+  // binned range (a contributed line beyond the last bar would just float).
+  const histogramBucketFor = (value) => {
+    if (!histogramData.length) return null
+    const edges = stats.histogram.bin_edges
+    if (value < edges[0] || value > edges[edges.length - 1]) return null
+    const index = edges.findIndex((e) => e >= value)
+    const bucket = histogramData[Math.min(Math.max(index - 1, 0), histogramData.length - 1)]
+    return bucket?.label ?? null
+  }
 
   const heatmapYears = {}
   for (const row of monthlyReturns ?? []) {
@@ -566,6 +715,29 @@ export default function Simulator() {
 
     return (
       <div className="space-y-4">
+        <p className="max-w-prose text-sm text-ink-soft">
+          Enter your starting balance, monthly contribution and holdings, then run
+          the simulation to see the range of outcomes across 1,000 simulated
+          futures for your portfolio.
+        </p>
+        {restoredFrom && (
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="chip" title="The inputs and results from your last successful run were brought back when this page loaded. Nothing was re-simulated automatically.">
+              <History size={11} strokeWidth={2} className="text-ink-faint" />
+              Restored from your last run
+              {restoredFrom.savedAt &&
+                ` · ${new Date(restoredFrom.savedAt).toLocaleString()}`}
+            </span>
+            <button
+              type="button"
+              className="btn"
+              onClick={() => runSimulation({ preventDefault: () => {} })}
+            >
+              <Play size={14} strokeWidth={2} fill="currentColor" />
+              Run again
+            </button>
+          </div>
+        )}
         <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-[300px_minmax(0,1fr)]">
         {/* ---- Control panel ---- */}
         <aside className="panel">
@@ -580,157 +752,230 @@ export default function Simulator() {
           </div>
 
           <form className="space-y-5 p-4" onSubmit={runSimulation}>
-            <label className="block">
-              <span className="field-label">
-                <span>Portfolio</span>
-                <span className="font-mono text-xs normal-case text-ink-faint">
-                  {selectedPortfolioId ? 'saves to this portfolio' : 'creates a new one'}
-                </span>
-              </span>
-              <select
-                className="select"
-                value={selectedPortfolioId ?? ''}
-                onChange={(event) => {
-                  const value = event.target.value
-                  if (!value) {
-                    setSelectedPortfolioId(null)
-                    return
-                  }
-                  const id = Number(value)
-                  if (id === selectedPortfolioId) return
-                  setSelectedPortfolioId(id)
-                  fetchJSON(`/portfolios/${id}`)
-                    .then(applyPortfolio)
-                    .catch(() => {})
-                }}
-              >
-                <option value="">New portfolio…</option>
-                {portfolios.map((portfolio) => (
-                  <option key={portfolio.id} value={portfolio.id}>
-                    {portfolio.name}
-                  </option>
-                ))}
-              </select>
-            </label>
+            <section className="space-y-4">
+              <h2 className="text-xs font-semibold uppercase tracking-widest text-ink-soft">
+                1 · Your plan
+              </h2>
 
-            <label className="block">
-              <span className="field-label">Portfolio name</span>
-              <input
-                type="text"
-                className="input"
-                value={name}
-                onChange={updateSetting(setName)}
+              <FieldSlider
+                icon={Wallet}
+                label="Current balance"
+                value={initialBalance}
+                min={0}
+                max={500000}
+                step={1000}
+                onChange={updateSetting(setInitialBalance)}
+                render={(v) => formatCurrency(Number(v))}
               />
-            </label>
 
-            <FieldSlider
-              icon={Wallet}
-              label="Current balance"
-              value={initialBalance}
-              min={0}
-              max={500000}
-              step={1000}
-              onChange={updateSetting(setInitialBalance)}
-              render={(v) => formatCurrency(Number(v))}
-            />
+              <FieldSlider
+                icon={TrendingUp}
+                label="Monthly contribution"
+                value={contribution}
+                min={0}
+                max={2000}
+                step={25}
+                onChange={updateSetting(setContribution)}
+                render={(v) => `${v} /mo`}
+              />
 
-            <FieldSlider
-              icon={TrendingUp}
-              label="Monthly contribution"
-              value={contribution}
-              min={0}
-              max={2000}
-              step={25}
-              onChange={updateSetting(setContribution)}
-              render={(v) => `${v} /mo`}
-            />
+              <FieldSlider
+                icon={Gauge}
+                label="Investment horizon"
+                value={horizonYears}
+                min={1}
+                max={50}
+                step={1}
+                onChange={updateSetting(setHorizonYears)}
+                render={(v) => `${v} yr`}
+              />
+            </section>
 
-            <FieldSlider
-              icon={Gauge}
-              label="Investment horizon"
-              value={horizonYears}
-              min={1}
-              max={50}
-              step={1}
-              onChange={updateSetting(setHorizonYears)}
-              render={(v) => `${v} yr`}
-            />
+            <section className="space-y-4">
+              <h2 className="text-xs font-semibold uppercase tracking-widest text-ink-soft">
+                2 · Portfolio
+              </h2>
 
-            <div>
-              <span className="mb-1.5 block text-xs font-medium uppercase tracking-widest text-ink-faint">
-                Holdings
-              </span>
-              <div className="space-y-2">
-                {holdings.map((holding, index) => (
-                  <div key={index} className="flex items-center gap-1.5">
-                    <select
-                      className="select h-8 min-w-0 flex-1"
-                      value={holding.symbol}
-                      onChange={(e) => updateHolding(index, 'symbol', e.target.value)}
-                    >
-                      {tickers
-                        .filter((t) => t.price_rows > 0)
-                        .map((t) => (
-                          <option key={t.symbol} value={t.symbol}>
-                            {t.symbol} — {t.name}
+              <label className="block">
+                <span className="field-label">
+                  <span>Portfolio</span>
+                  <span className="font-mono text-xs normal-case text-ink-faint">
+                    {selectedPortfolioId ? 'saves to this portfolio' : 'creates a new one'}
+                  </span>
+                </span>
+                <select
+                  className="select"
+                  value={selectedPortfolioId ?? ''}
+                  onChange={(event) => {
+                    const value = event.target.value
+                    if (!value) {
+                      setSelectedPortfolioId(null)
+                      return
+                    }
+                    const id = Number(value)
+                    if (id === selectedPortfolioId) return
+                    setSelectedPortfolioId(id)
+                    fetchJSON(`/portfolios/${id}`)
+                      .then(applyPortfolio)
+                      .catch(() => {})
+                  }}
+                >
+                  <option value="">New portfolio…</option>
+                  {portfolios.map((portfolio) => (
+                    <option key={portfolio.id} value={portfolio.id}>
+                      {portfolio.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <label className="block">
+                <span className="field-label">Portfolio name</span>
+                <input
+                  type="text"
+                  className="input"
+                  value={name}
+                  onChange={updateSetting(setName)}
+                />
+              </label>
+
+              <div>
+                <span className="mb-1.5 block text-xs font-medium uppercase tracking-widest text-ink-faint">
+                  Holdings
+                </span>
+                <div className="space-y-2">
+                  {holdings.map((holding, index) => (
+                    <div key={index} className="flex items-center gap-1.5">
+                      <select
+                        className="select h-8 min-w-0 flex-1"
+                        value={holding.symbol}
+                        onChange={(e) => updateHolding(index, 'symbol', e.target.value)}
+                      >
+                        {tickers
+                          .filter((t) => t.price_rows > 0)
+                          .map((t) => (
+                            <option key={t.symbol} value={t.symbol}>
+                              {t.symbol} — {t.name}
+                            </option>
+                          ))}
+                      </select>
+                      <div className="flex h-8 w-16 items-center gap-0.5 border border-edge bg-white px-1.5 focus-within:border-ink">
+                        <input
+                          type="number"
+                          min="0"
+                          max="100"
+                          step="1"
+                          className="w-full bg-transparent text-right font-mono text-sm text-ink outline-none"
+                          value={holding.weight}
+                          onChange={(e) => updateHolding(index, 'weight', e.target.value)}
+                        />
+                        <span className="text-xs text-ink-faint">%</span>
+                      </div>
+                      <button
+                        type="button"
+                        className="btn btn-danger-ghost h-8 w-8 items-center justify-center p-0"
+                        onClick={() => removeHolding(index)}
+                        disabled={holdings.length <= 1}
+                        aria-label="Remove holding"
+                      >
+                        <Trash size={13} strokeWidth={1.8} />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+                <button type="button" className="btn mt-2 w-full" onClick={addHolding}>
+                  <Plus size={13} strokeWidth={2} />
+                  Add holding
+                </button>
+                {validationIssues.length > 0 && (
+                  <ul className="mt-2 space-y-1">
+                    {validationIssues.map((issue) => (
+                      <li key={issue} className="text-xs leading-snug text-neg">
+                        {issue}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            </section>
+
+            <section className="space-y-4">
+              <h2>
+                <button
+                  type="button"
+                  className="flex w-full items-center justify-between text-xs font-semibold uppercase tracking-widest text-ink-soft transition-colors hover:text-ink"
+                  aria-expanded={advancedOpen}
+                  onClick={() => setAdvancedOpen((open) => !open)}
+                >
+                  <span>3 · Advanced (optional)</span>
+                  <ChevronRight
+                    size={14}
+                    strokeWidth={1.8}
+                    className={`transition-transform ${advancedOpen ? 'rotate-90' : ''}`}
+                  />
+                </button>
+              </h2>
+
+              {advancedOpen && (
+                <div className="space-y-4">
+                  <ToggleSwitch
+                    checked={useSentiment}
+                    onChange={setUseSentiment}
+                    title="AI Sentiment Adjustment (Includes Geopolitical Risk)"
+                    subtitle="Scales historical volatility by recent FinBERT news sentiment."
+                  />
+
+                  {/* Real-world basis switches. Both re-run the simulation on
+                      the server rather than post-processing the chart locally,
+                      because they change the simulated distribution's reported
+                      units and the stats are derived from the same adjusted
+                      paths. */}
+                  <ToggleSwitch
+                    checked={adjustForInflation}
+                    onChange={setAdjustForInflation}
+                    icon={TrendingDown}
+                    title="Adjust for 3% Inflation"
+                    subtitle="Restates paths and contributions in today's dollars."
+                  />
+                  <ToggleSwitch
+                    checked={applyCapitalGainsTax}
+                    onChange={setApplyCapitalGainsTax}
+                    icon={Landmark}
+                    title="Apply Capital Gains Tax"
+                    subtitle="15% on the final profit of each path, charged once at liquidation."
+                  />
+
+                  <div>
+                    <span className="field-label">Replay a historic crisis</span>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <select
+                        className="select min-w-[200px] flex-1"
+                        value={crisis}
+                        onChange={(e) => setCrisis(e.target.value)}
+                      >
+                        {CRISIS_OPTIONS.map((c) => (
+                          <option key={c.value} value={c.value}>
+                            {c.label}
                           </option>
                         ))}
-                    </select>
-                    <div className="flex h-8 w-16 items-center gap-0.5 border border-edge bg-white px-1.5 focus-within:border-ink">
-                      <input
-                        type="number"
-                        min="0"
-                        max="100"
-                        step="1"
-                        className="w-full bg-transparent text-right font-mono text-sm text-ink outline-none"
-                        value={holding.weight}
-                        onChange={(e) => updateHolding(index, 'weight', e.target.value)}
-                      />
-                      <span className="text-xs text-ink-faint">%</span>
+                      </select>
+                      <button
+                        type="button"
+                        className="btn btn-primary shrink-0"
+                        onClick={replayCrisis}
+                        disabled={crisisLoading}
+                      >
+                        <History size={14} strokeWidth={2} />
+                        {crisisLoading ? 'Running…' : 'Replay crisis'}
+                      </button>
                     </div>
-                    <button
-                      type="button"
-                      className="btn btn-danger-ghost h-8 w-8 items-center justify-center p-0"
-                      onClick={() => removeHolding(index)}
-                      disabled={holdings.length <= 1}
-                      aria-label="Remove holding"
-                    >
-                      <Trash size={13} strokeWidth={1.8} />
-                    </button>
+                    {crisisError && (
+                      <p className="mt-1 text-xs text-neg">Error: {crisisError}</p>
+                    )}
                   </div>
-                ))}
-              </div>
-              <button type="button" className="btn mt-2 w-full" onClick={addHolding}>
-                <Plus size={13} strokeWidth={2} />
-                Add holding
-              </button>
-            </div>
-
-            <ToggleSwitch
-              checked={useSentiment}
-              onChange={setUseSentiment}
-              title="AI Sentiment Adjustment (Includes Geopolitical Risk)"
-              subtitle="Scales historical volatility by recent FinBERT news sentiment."
-            />
-
-            {/* Real-world basis switches. Both re-run the simulation on the
-                server rather than post-processing the chart locally, because
-                they change the simulated distribution's reported units and the
-                stats are derived from the same adjusted paths. */}
-            <ToggleSwitch
-              checked={adjustForInflation}
-              onChange={setAdjustForInflation}
-              icon={TrendingDown}
-              title="Adjust for 3% Inflation"
-              subtitle="Restates paths and contributions in today's dollars."
-            />
-            <ToggleSwitch
-              checked={applyCapitalGainsTax}
-              onChange={setApplyCapitalGainsTax}
-              icon={Landmark}
-              title="Apply Capital Gains Tax"
-              subtitle="15% on the final profit of each path, charged once at liquidation."
-            />
+                </div>
+              )}
+            </section>
 
             {error && <p className="text-xs text-neg">Error: {error}</p>}
 
@@ -762,20 +1007,28 @@ export default function Simulator() {
             </div>
           ) : (
             <>
-              <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-                {statCards.map(({ icon: Icon, label, value, tone }) => (
-                  <div key={label} className="panel flex items-center gap-3 px-4 py-3">
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+                {statCards.map(({ icon: Icon, label, value, tone, secondary, tooltip }) => (
+                  <div key={label} className="panel flex items-start gap-3 px-4 py-3">
                     <span
-                      className={`flex h-8 w-8 shrink-0 items-center justify-center border border-edge bg-base-elevated ${tone}`}
+                      className={`mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center border border-edge bg-base-elevated ${tone}`}
                     >
                       <Icon size={15} strokeWidth={1.8} />
                     </span>
                     <span className="min-w-0">
-                      <span className="block text-xs font-medium uppercase tracking-widest text-ink-faint">
+                      <span className="flex items-center gap-1 text-xs font-medium uppercase tracking-widest text-ink-faint">
                         {label}
+                        {tooltip && <LabelTooltip text={tooltip} />}
                       </span>
-                      <span className="block truncate num text-xl text-ink">
-                        {formatCurrency(value)}
+                      <span
+                        className={`block truncate num text-xl ${
+                          tone === 'text-pos' || tone === 'text-neg' ? tone : 'text-ink'
+                        }`}
+                      >
+                        {value}
+                      </span>
+                      <span className="mt-0.5 block text-xs leading-snug text-ink-dim">
+                        {secondary}
                       </span>
                     </span>
                   </div>
@@ -817,138 +1070,84 @@ export default function Simulator() {
                       )}
                     </div>
                   )}
-                  <div className="grid grid-cols-2 gap-x-4 gap-y-5 p-4 sm:grid-cols-3 xl:grid-cols-5">
-                    {insightCards.map(({ icon: Icon, label, value, tone, title }) => (
-                      <div key={label} title={title}>
+                  <div className="grid grid-cols-2 gap-x-4 gap-y-5 p-4 sm:grid-cols-2 xl:grid-cols-3">
+                    {insightCards.map(({ icon: Icon, label, value, tone, secondary, tooltip }) => (
+                      <div key={label}>
                         <span className="flex items-center gap-1.5 text-11px font-semibold uppercase tracking-widest text-ink-faint">
                           <Icon size={12} strokeWidth={1.8} />
                           {label}
+                          {tooltip && <LabelTooltip text={tooltip} />}
                         </span>
                         <span className={`mt-1 block num text-xl ${tone}`}>
                           {value}
                         </span>
+                        {secondary && (
+                          <span className="mt-0.5 block text-xs leading-snug text-ink-dim">
+                            {secondary}
+                          </span>
+                        )}
                       </div>
                     ))}
                   </div>
                   <div className="border-t border-edge px-4 pb-4 pt-3">
                     <div className="flex flex-wrap items-center justify-between gap-2">
                       <span className="text-xs font-semibold uppercase tracking-widest text-ink-soft">
-                        Value trajectory
+                        Final value distribution
                       </span>
                       <span className="flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-11px text-ink-faint">
                         <span className="flex items-center gap-1.5">
-                          <span className="h-px w-4 bg-ink opacity-30" />
-                          best p90
+                          <span className="h-0.5 w-4 bg-accent" />
+                          median
                         </span>
                         <span className="flex items-center gap-1.5">
-                          <span className="h-0.5 w-4 bg-ink" />
-                          median p50
-                        </span>
-                        <span className="flex items-center gap-1.5">
-                          <span className="h-px w-4 bg-ink opacity-60" />
-                          worst p10
-                        </span>
-                        <span className="flex items-center gap-1.5">
-                          <span className="h-px w-4 bg-ink-faint" />
-                          contributed
+                          <span className="h-0.5 w-4 border-b border-dashed border-ink-dim" />
+                          total contributed
                         </span>
                       </span>
                     </div>
-                    <div className="mt-3 h-48">
+                    <div className="mt-3 h-40">
                       <div
                         className="h-full w-full"
                         role="img"
-                        aria-label={`Best, median and worst case portfolio value trajectories over ${horizonYears} years, with the total contributed line for comparison`}
+                        aria-label="Histogram of simulated final portfolio values"
                       >
                         <ResponsiveContainer width="100%" height="100%">
-                          <ComposedChart
-                            data={trajectoryData}
-                            margin={{ top: 4, right: 8, bottom: 0, left: 0 }}
-                          >
-                            <CartesianGrid stroke="var(--chart-grid)" vertical={false} />
+                          <BarChart data={histogramData} margin={{ top: 4, right: 8, bottom: 0, left: 0 }}>
+                            <CartesianGrid stroke="var(--chart-grid)" strokeDasharray="3 3" vertical={false} />
                             <XAxis
-                              dataKey="month"
-                              tick={{
-                                fill: 'var(--chart-axis)',
-                                fontSize: 11,
-                                fontFamily: 'var(--font-mono)',
-                              }}
+                              dataKey="label"
+                              tick={{ fill: 'var(--chart-axis)', fontSize: 10, fontFamily: 'var(--font-mono)' }}
                               tickLine={false}
                               axisLine={{ stroke: 'var(--chart-grid)' }}
-                              minTickGap={48}
-                              tickFormatter={(m) => (m % 12 === 0 ? `${m / 12}y` : '')}
+                              interval={Math.max(1, Math.floor(histogramData.length / 6))}
                             />
-                            <YAxis
-                              tick={{
-                                fill: 'var(--chart-axis)',
-                                fontSize: 11,
-                                fontFamily: 'var(--font-mono)',
-                              }}
-                              tickFormatter={(v) => `${Math.round(v / 1000)}k`}
-                              tickLine={false}
-                              axisLine={false}
-                              width={44}
-                            />
+                            <YAxis tick={false} tickLine={false} axisLine={false} width={2} />
                             <Tooltip
-                              content={<TrajectoryTooltip />}
-                              isAnimationActive={false}
-                              cursor={{
-                                stroke: 'var(--chart-axis)',
-                                strokeWidth: 1,
-                                strokeOpacity: 0.6,
-                              }}
-                            />
-                            {/* p90 / p10 frame the fan; alpha and width carry the
-                                distinction so all three paths stay in the
-                                monochrome palette. */}
-                            <Line
-                              type="monotone"
-                              dataKey="high"
-                              name="Best case (p90)"
-                              stroke="var(--chart-line)"
-                              strokeWidth={1}
-                              strokeOpacity={0.3}
-                              dot={false}
-                              activeDot={false}
+                              cursor={{ fill: 'color-mix(in srgb, var(--chart-line) 6%, transparent)' }}
+                              content={<HistogramTooltip />}
                               isAnimationActive={false}
                             />
-                            <Line
-                              type="monotone"
-                              dataKey="low"
-                              name="Worst case (p10)"
-                              stroke="var(--chart-line)"
-                              strokeWidth={1}
-                              strokeOpacity={0.6}
-                              dot={false}
-                              activeDot={false}
+                            <Bar
+                              dataKey="count"
+                              fill="var(--chart-line)"
+                              fillOpacity={0.75}
                               isAnimationActive={false}
                             />
-                            <Line
-                              type="monotone"
-                              dataKey="median"
-                              name="Median (p50)"
-                              stroke="var(--chart-line)"
-                              strokeWidth={2}
-                              dot={false}
-                              activeDot={{
-                                r: 2.5,
-                                fill: 'var(--chart-line)',
-                                stroke: 'var(--chart-surface)',
-                                strokeWidth: 1,
-                              }}
-                              isAnimationActive={false}
-                            />
-                            <Line
-                              type="monotone"
-                              dataKey="contributed"
-                              name="Total contributed"
-                              stroke="var(--chart-axis)"
-                              strokeWidth={1}
-                              dot={false}
-                              activeDot={false}
-                              isAnimationActive={false}
-                            />
-                          </ComposedChart>
+                            {histogramBucketFor(stats.final_percentiles.p50) && (
+                              <ReferenceLine
+                                x={histogramBucketFor(stats.final_percentiles.p50)}
+                                stroke="var(--chart-line)"
+                                strokeWidth={1.5}
+                              />
+                            )}
+                            {histogramBucketFor(stats.total_contributed) && (
+                              <ReferenceLine
+                                x={histogramBucketFor(stats.total_contributed)}
+                                stroke="var(--chart-axis)"
+                                strokeDasharray="4 3"
+                              />
+                            )}
+                          </BarChart>
                         </ResponsiveContainer>
                       </div>
                     </div>
@@ -959,7 +1158,7 @@ export default function Simulator() {
                   <h3 className="text-base font-semibold text-ink">Outcome insights</h3>
                   <p className="max-w-prose text-sm text-ink-soft">
                     This run predates the insights backend. Re-run the simulation to see
-                    outcome statistics, the value trajectory, and the monthly-returns heatmap.
+                    outcome statistics, the final-value distribution, and the monthly-returns heatmap.
                   </p>
                 </div>
               )}
@@ -1049,12 +1248,19 @@ export default function Simulator() {
                   </ResponsiveContainer>
                   </div>
                 </div>
+                <p className="border-t border-edge px-4 py-2.5 text-xs leading-snug text-ink-dim">
+                  How to read this chart: the middle line is the median outcome
+                  (50th percentile). The shaded band spans the 10th to 90th
+                  percentiles — the range the middle 80% of simulated futures
+                  fall inside. The band edges and the median line are real
+                  simulated paths.
+                </p>
               </div>
 
-                <div className="panel">
-                  <div className="panel-title">
-                    <span>Realized monthly returns</span>
-                    <span className="flex items-center gap-3 font-mono text-xs normal-case text-ink-faint">
+              <div className="panel">
+                <div className="panel-title">
+                  <span>Realized monthly returns</span>
+                  <span className="flex items-center gap-3 font-mono text-xs normal-case text-ink-faint">
                       {heatYears.length > 0 && (
                         <span title={`Trailing ${horizonYears}-year window, matching the investment horizon.`}>
                           {heatYears[0]}
@@ -1115,138 +1321,99 @@ export default function Simulator() {
                 </p>
               )}
 
-              <div className="panel">
-                <div className="panel-title">
-                  <span>Replay a crisis</span>
-                  {crisisLoading && (
-                    <span className="flex items-center gap-1 font-mono text-xs normal-case text-accent">
-                      <span className="h-1.5 w-1.5 bg-accent" />
-                      running
+              {crisisData && (
+                <div className="panel">
+                  <div className="panel-title">
+                    <span>Crisis replay</span>
+                    <span className="flex items-center gap-3 font-mono text-xs normal-case text-ink-faint">
+                      <span className="flex items-center gap-1.5">
+                        <span className="h-0.5 w-4 bg-accent" /> simulated median
+                      </span>
+                      <span className="flex items-center gap-1.5">
+                        <span className="h-0.5 w-4 bg-pos" /> real trajectory
+                      </span>
+                      <span className="flex items-center gap-1.5">
+                        <span className="h-2 w-4 bg-accent opacity-20" /> 10–90th
+                      </span>
                     </span>
-                  )}
-                </div>
-
-                <div className="space-y-3 p-4">
-                  <div className="flex flex-wrap items-end gap-2">
-                    <div className="min-w-[220px] flex-1">
-                      <span className="field-label">Scenario</span>
-                      <select
-                        className="select"
-                        value={crisis}
-                        onChange={(e) => setCrisis(e.target.value)}
-                      >
-                        {CRISIS_OPTIONS.map((c) => (
-                          <option key={c.value} value={c.value}>
-                            {c.label}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                    <button
-                      type="button"
-                      className="btn btn-primary"
-                      onClick={replayCrisis}
-                      disabled={crisisLoading}
-                    >
-                      <History size={14} strokeWidth={2} />
-                      Replay crisis
-                    </button>
                   </div>
-
-                  {crisisError && <p className="text-xs text-neg">Error: {crisisError}</p>}
-
-                  {crisisData && (
-                    <div className="border border-edge p-3">
-                      <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-                        <span className="text-xs font-semibold uppercase tracking-widest text-ink-soft">
-                          {crisisLabel(crisisData.crisis)} · {crisisData.window.start} →
-                          {' '}{crisisData.window.end}
-                        </span>
-                        <span className="flex items-center gap-3 font-mono text-xs text-ink-faint">
-                          <span className="flex items-center gap-1.5">
-                            <span className="h-0.5 w-4 bg-accent" /> simulated
-                            median
-                          </span>
-                          <span className="flex items-center gap-1.5">
-                            <span className="h-0.5 w-4 bg-pos" /> real trajectory
-                          </span>
-                          <span className="flex items-center gap-1.5">
-                            <span className="h-2 w-4 bg-accent opacity-20" />{' '}
-                            10–90th
-                          </span>
-                        </span>
-                      </div>
-                      <div className="h-[260px]">
-                        <div
-                          className="h-full w-full"
-                          role="img"
-                          aria-label={`Crisis scenario replay chart comparing median portfolio value against a baseline buy-and-hold during ${crisisLabel(crisisData.crisis)}`}
+                  <div className="p-3">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <span className="text-xs font-semibold uppercase tracking-widest text-ink-soft">
+                        {crisisLabel(crisisData.crisis)} · {crisisData.window.start} →
+                        {' '}{crisisData.window.end}
+                      </span>
+                    </div>
+                    <div className="mt-2 h-[300px]">
+                      <div
+                        className="h-full w-full"
+                        role="img"
+                        aria-label={`Crisis scenario replay chart comparing median portfolio value against a baseline buy-and-hold during ${crisisLabel(crisisData.crisis)}`}
+                      >
+                      <ResponsiveContainer width="100%" height="100%">
+                        <ComposedChart
+                          data={crisisChart}
+                          margin={{ top: 8, right: 16, bottom: 8, left: 8 }}
                         >
-                        <ResponsiveContainer width="100%" height="100%">
-                          <ComposedChart
-                            data={crisisChart}
-                            margin={{ top: 8, right: 16, bottom: 8, left: 8 }}
-                          >
-                            <CartesianGrid
-                              stroke="var(--chart-grid)"
-                              strokeDasharray="3 3"
-                              vertical={false}
-                            />
-                            <XAxis
-                              dataKey="month"
-                              tick={{ fill: 'var(--chart-axis)', fontSize: 12 }}
-                              tickLine={false}
-                              axisLine={{ stroke: 'var(--chart-grid)' }}
-                              tickFormatter={(m) => `${m}m`}
-                            />
-                            <YAxis
-                              tick={{ fill: 'var(--chart-axis)', fontSize: 12 }}
-                              tickFormatter={(v) => `${Math.round(v / 1000)}k`}
-                              tickLine={false}
-                              axisLine={false}
-                              width={48}
-                            />
-                            <Tooltip
-                              content={<CrisisFanTooltip />}
-                              cursor={{
-                                stroke: 'color-mix(in srgb, var(--chart-line) 45%, transparent)',
-                                strokeDasharray: '3 3',
-                              }}
-                            />
-                            <Area
-                              type="monotone"
-                              dataKey="band"
-                              stroke="none"
-                              fill="var(--chart-line)"
-                              fillOpacity={0.1}
-                              isAnimationActive={false}
-                              activeDot={false}
-                            />
-                            <Line
-                              type="monotone"
-                              dataKey="median"
-                              stroke="var(--chart-line)"
-                              strokeWidth={2}
-                              dot={false}
-                              activeDot={{ r: 3 }}
-                            />
-                            <Line
-                              type="monotone"
-                              dataKey="actual"
-                              stroke="var(--up)"
-                              strokeWidth={2}
-                              strokeDasharray="4 2"
-                              dot={false}
-                              activeDot={{ r: 3, fill: 'var(--up)' }}
-                            />
-                          </ComposedChart>
-                        </ResponsiveContainer>
-                        </div>
+                          <CartesianGrid
+                            stroke="var(--chart-grid)"
+                            strokeDasharray="3 3"
+                            vertical={false}
+                          />
+                          <XAxis
+                            dataKey="month"
+                            tick={{ fill: 'var(--chart-axis)', fontSize: 12 }}
+                            tickLine={false}
+                            axisLine={{ stroke: 'var(--chart-grid)' }}
+                            tickFormatter={(m) => `${m}m`}
+                          />
+                          <YAxis
+                            tick={{ fill: 'var(--chart-axis)', fontSize: 12 }}
+                            tickFormatter={(v) => `${Math.round(v / 1000)}k`}
+                            tickLine={false}
+                            axisLine={false}
+                            width={48}
+                          />
+                          <Tooltip
+                            content={<CrisisFanTooltip />}
+                            cursor={{
+                              stroke: 'color-mix(in srgb, var(--chart-line) 45%, transparent)',
+                              strokeDasharray: '3 3',
+                            }}
+                          />
+                          <Area
+                            type="monotone"
+                            dataKey="band"
+                            stroke="none"
+                            fill="var(--chart-line)"
+                            fillOpacity={0.1}
+                            isAnimationActive={false}
+                            activeDot={false}
+                          />
+                          <Line
+                            type="monotone"
+                            dataKey="median"
+                            stroke="var(--chart-line)"
+                            strokeWidth={2}
+                            dot={false}
+                            activeDot={{ r: 3 }}
+                          />
+                          <Line
+                            type="monotone"
+                            dataKey="actual"
+                            stroke="var(--up)"
+                            strokeWidth={2}
+                            strokeDasharray="4 2"
+                            dot={false}
+                            activeDot={{ r: 3, fill: 'var(--up)' }}
+                          />
+                        </ComposedChart>
+                      </ResponsiveContainer>
                       </div>
                     </div>
-                  )}
+                  </div>
                 </div>
-              </div>
+              )}
             </>
           )}
         </section>
