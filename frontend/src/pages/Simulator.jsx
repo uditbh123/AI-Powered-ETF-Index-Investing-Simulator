@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useLocation } from 'react-router-dom'
 import {
   Area,
@@ -31,6 +31,16 @@ import { queryToHoldings } from '../strategyHoldings'
 import { usePageTitle } from '../hooks/usePageTitle'
 
 const DEFAULT_HOLDINGS = [{ symbol: 'SPY', weight: 100 }]
+
+// Persistent pointer to the last successful run, so inputs AND results survive
+// navigating away and a full page reload. We persist the run_id, not the whole
+// response: the backend's sqlite run cache is the authoritative copy, and
+// restoring re-fetches `GET /simulation-runs/:id` (same JSON as the POST that
+// produced it). localStorage rather than sessionStorage on purpose -- the
+// requirement is to survive a real reload, not just a tab-scoped session. A
+// stale pointer (run evicted, DB reset) degrades to the empty state rather
+// than showing old numbers, because the restore fetch failing drops the key.
+const LAST_RUN_KEY = 'etf-simulator:last-run'
 
 const CRISIS_OPTIONS = [
   { value: 'dot_com_2000', label: 'Dot-com bust (2000–2002)' },
@@ -253,6 +263,7 @@ export default function Simulator() {
   const [crisisError, setCrisisError] = useState(null)
   const [monthlyReturns, setMonthlyReturns] = useState(null)
   const [monthlyReturnsError, setMonthlyReturnsError] = useState(null)
+  const [restoredFrom, setRestoredFrom] = useState(null)
 
   useEffect(() => {
     fetchJSON('/tickers')
@@ -293,6 +304,70 @@ export default function Simulator() {
     }
   }, [search, selectedPortfolioId, applyPortfolio])
 
+  // Restore the last successful run on mount. Deep links (strategy presets,
+  // ticker, portfolio) take precedence and skip the restore entirely; a
+  // restored run sets inputs and result but never re-fires the simulation.
+  // Runs once per mount against the search string this page was opened with,
+  // so editing the URL later does not re-trigger a restore.
+  const mountSearch = useRef(search)
+  useEffect(() => {
+    if (['holdings', 'ticker', 'portfolio'].some((key) =>
+      new URLSearchParams(mountSearch.current).has(key),
+    )) {
+      return
+    }
+    let cancelled = false
+    let raw = null
+    try {
+      raw = JSON.parse(localStorage.getItem(LAST_RUN_KEY) ?? 'null')
+    } catch {
+      raw = null
+    }
+    if (!raw?.runId) return
+
+    setRestoredFrom({ runId: raw.runId, savedAt: raw.savedAt ?? null })
+
+    async function restore() {
+      try {
+        const run = await fetchJSON(`/simulation-runs/${raw.runId}`)
+        if (cancelled || !run?.params) return
+        setResult(run)
+        setPhase('done')
+        setInitialBalance(Number(run.params.initial_balance ?? 10000))
+        setHorizonYears((Number(run.params.horizon_months) ?? 120) / 12)
+        setContribution(Number(run.params.monthly_contribution ?? 200))
+        setUseSentiment(Boolean(run.params.use_sentiment))
+        setAdjustForInflation(Boolean(run.params.adjust_for_inflation))
+        setApplyCapitalGainsTax(Boolean(run.params.apply_capital_gains_tax))
+        // Name + holdings live on the portfolio, not on the run. If the
+        // portfolio is gone the run still renders; only the form defers to
+        // its defaults until the next successful run.
+        if (run.portfolio_id) {
+          const portfolio = await fetchJSON(`/portfolios/${run.portfolio_id}`)
+          if (!cancelled) {
+            setSelectedPortfolioId(portfolio.id)
+            setPortfolioId(portfolio.id)
+            applyPortfolio(portfolio)
+          }
+        }
+      } catch {
+        if (!cancelled) {
+          // Run no longer available (DB reset / evicted): drop the pointer so
+          // the empty state shows and the affordance does not linger.
+          localStorage.removeItem(LAST_RUN_KEY)
+          setRestoredFrom(null)
+          setPhase('idle')
+        }
+      }
+    }
+    restore()
+    return () => {
+      cancelled = true
+    }
+    // Intentionally mount-once: `restore` depends on the mount-time search.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
   useEffect(() => {
     if (!portfolioId || phase !== 'done') return
     let cancelled = false
@@ -327,7 +402,8 @@ export default function Simulator() {
   }
 
   async function runSimulation(event) {
-    event.preventDefault()
+    event?.preventDefault?.()
+    setRestoredFrom(null)
     setPhase('running')
     setError(null)
     setCrisisData(null)
@@ -375,6 +451,22 @@ export default function Simulator() {
       })
       setResult(sim)
       setPhase('done')
+      // Remember this run so a later visit to /simulator restores the inputs
+      // and results (see the mount effect above). Only successful runs update
+      // the pointer; a failed re-run leaves the previous store intact.
+      try {
+        localStorage.setItem(
+          LAST_RUN_KEY,
+          JSON.stringify({
+            runId: sim.run_id,
+            portfolioId: sim.portfolio_id,
+            savedAt: new Date().toISOString(),
+          }),
+        )
+      } catch {
+        // Storage full/disabled: degrade to no persistence rather than failing
+        // the run the user just asked for.
+      }
     } catch (e) {
       setError(e.message)
       setPhase('idle')
@@ -566,6 +658,24 @@ export default function Simulator() {
 
     return (
       <div className="space-y-4">
+        {restoredFrom && (
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="chip" title="The inputs and results from your last successful run were brought back when this page loaded. Nothing was re-simulated automatically.">
+              <History size={11} strokeWidth={2} className="text-ink-faint" />
+              Restored from your last run
+              {restoredFrom.savedAt &&
+                ` · ${new Date(restoredFrom.savedAt).toLocaleString()}`}
+            </span>
+            <button
+              type="button"
+              className="btn"
+              onClick={() => runSimulation({ preventDefault: () => {} })}
+            >
+              <Play size={14} strokeWidth={2} fill="currentColor" />
+              Run again
+            </button>
+          </div>
+        )}
         <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-[300px_minmax(0,1fr)]">
         {/* ---- Control panel ---- */}
         <aside className="panel">
