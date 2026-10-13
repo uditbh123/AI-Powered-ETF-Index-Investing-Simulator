@@ -2,9 +2,12 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { useLocation } from 'react-router-dom'
 import {
   Area,
+  Bar,
+  BarChart,
   CartesianGrid,
   ComposedChart,
   Line,
+  ReferenceLine,
   ResponsiveContainer,
   Tooltip,
   XAxis,
@@ -172,29 +175,16 @@ function CrisisFanTooltip({ active, payload }) {
   )
 }
 
-function TrajectoryTooltip({ active, payload }) {
+function HistogramTooltip({ active, payload }) {
   if (!active || !payload?.length) return null
   const point = payload[0].payload
-  const rows = [
-    { label: 'best p90', value: point.high },
-    { label: 'median p50', value: point.median },
-    { label: 'worst p10', value: point.low },
-    { label: 'contributed', value: point.contributed },
-  ]
   return (
     <div className="border border-ink bg-base-panel px-2 py-1.5">
       <div className="text-11px uppercase tracking-widest text-ink-faint">
-        Year {Math.floor(point.month / 12)} · month {point.month % 12}
+        {formatCurrency(point.low)} – {formatCurrency(point.high)}
       </div>
-      <div className="mt-1 space-y-0.5">
-        {rows.map(({ label, value }) => (
-          <div key={label} className="flex items-center justify-between gap-5">
-            <span className="text-11px uppercase tracking-widest text-ink-faint">
-              {label}
-            </span>
-            <span className="num text-xs text-ink">{formatCurrency(value)}</span>
-          </div>
-        ))}
+      <div className="mt-1 num text-xs text-ink">
+        {point.count} {point.count === 1 ? 'path' : 'paths'}
       </div>
     </div>
   )
@@ -646,21 +636,6 @@ export default function Simulator() {
 
   const validationIssues = holdingsValidation(holdings)
 
-  // Trajectory rows for the compact summary chart. `chartData` already carries
-  // the p10/p50/p90 paths from the run's percentile series; this only adds the
-  // book-value line at each month so the crossing point is readable. The
-  // contribution is applied at steps 1..horizon (never at step 0), which is
-  // why the run's own params are used rather than the live form state - the
-  // form may have been edited since the run was made, and a loaded portfolio
-  // carries its own monthly_contribution (which is not the slider's value).
-  //
-  // The book-value line must be deflated by the same factor as the paths when
-  // the inflation toggle is on. Leaving it nominal would draw a rising nominal
-  // line under a falling real line and imply the portfolio lost to inflation
-  // when it did not - the same units mismatch the backend avoids by deflating
-  // its own total_contributed. The rate is 0 when the toggle is off, and 0 is
-  // also the fallback for legacy cached runs that predate the `adjustments`
-  // block, so this is a no-op in both cases.
   // The `adjustments` block is persisted with the run's stats so a cached run
   // replays the same disclosure a fresh one produced. Defaulted here because
   // runs cached before this feature have no such block; every field is read
@@ -675,17 +650,35 @@ export default function Simulator() {
     ...(result?.stats?.adjustments ?? {}),
   }
 
-  const inflationRate = Number(adjustments.inflation_rate ?? 0)
-  const trajectoryData = result?.params
-    ? chartData.map((row) => ({
-        ...row,
-        contributed: Math.round(
-          (Number(result.params.initial_balance ?? 0) +
-            Number(result.params.monthly_contribution ?? 0) * row.month) /
-            Math.pow(1 + inflationRate, row.month / 12),
-        ),
-      }))
+  // Final-value distribution from the run's 20-bin histogram. Each bin becomes
+  // a bar keyed by its midpoint label; the tooltip shows the bin's real range
+  // rather than the rounded label. The empty series for a legacy (stats-null)
+  // run leaves the panel with no bars to draw.
+  const histogramData = stats
+    ? stats.histogram.bin_edges.slice(0, -1).map((low, i) => {
+        const high = stats.histogram.bin_edges[i + 1]
+        const mid = (low + high) / 2
+        return {
+          count: stats.histogram.counts[i],
+          low,
+          high,
+          label: `${Math.round(mid / 1000)}k`,
+          value: mid,
+        }
+      })
     : []
+
+  // Maps a value to its bin's bar so p50 and total-contributed can be drawn as
+  // reference lines, or skipped entirely when the value falls outside the
+  // binned range (a contributed line beyond the last bar would just float).
+  const histogramBucketFor = (value) => {
+    if (!histogramData.length) return null
+    const edges = stats.histogram.bin_edges
+    if (value < edges[0] || value > edges[edges.length - 1]) return null
+    const index = edges.findIndex((e) => e >= value)
+    const bucket = histogramData[Math.min(Math.max(index - 1, 0), histogramData.length - 1)]
+    return bucket?.label ?? null
+  }
 
   const heatmapYears = {}
   for (const row of monthlyReturns ?? []) {
@@ -1099,122 +1092,62 @@ export default function Simulator() {
                   <div className="border-t border-edge px-4 pb-4 pt-3">
                     <div className="flex flex-wrap items-center justify-between gap-2">
                       <span className="text-xs font-semibold uppercase tracking-widest text-ink-soft">
-                        Value trajectory
+                        Final value distribution
                       </span>
                       <span className="flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-11px text-ink-faint">
                         <span className="flex items-center gap-1.5">
-                          <span className="h-px w-4 bg-ink opacity-30" />
-                          best p90
+                          <span className="h-0.5 w-4 bg-accent" />
+                          median
                         </span>
                         <span className="flex items-center gap-1.5">
-                          <span className="h-0.5 w-4 bg-ink" />
-                          median p50
-                        </span>
-                        <span className="flex items-center gap-1.5">
-                          <span className="h-px w-4 bg-ink opacity-60" />
-                          worst p10
-                        </span>
-                        <span className="flex items-center gap-1.5">
-                          <span className="h-px w-4 bg-ink-faint" />
-                          contributed
+                          <span className="h-0.5 w-4 border-b border-dashed border-ink-dim" />
+                          total contributed
                         </span>
                       </span>
                     </div>
-                    <div className="mt-3 h-48">
+                    <div className="mt-3 h-40">
                       <div
                         className="h-full w-full"
                         role="img"
-                        aria-label={`Best, median and worst case portfolio value trajectories over ${horizonYears} years, with the total contributed line for comparison`}
+                        aria-label="Histogram of simulated final portfolio values"
                       >
                         <ResponsiveContainer width="100%" height="100%">
-                          <ComposedChart
-                            data={trajectoryData}
-                            margin={{ top: 4, right: 8, bottom: 0, left: 0 }}
-                          >
-                            <CartesianGrid stroke="var(--chart-grid)" vertical={false} />
+                          <BarChart data={histogramData} margin={{ top: 4, right: 8, bottom: 0, left: 0 }}>
+                            <CartesianGrid stroke="var(--chart-grid)" strokeDasharray="3 3" vertical={false} />
                             <XAxis
-                              dataKey="month"
-                              tick={{
-                                fill: 'var(--chart-axis)',
-                                fontSize: 11,
-                                fontFamily: 'var(--font-mono)',
-                              }}
+                              dataKey="label"
+                              tick={{ fill: 'var(--chart-axis)', fontSize: 10, fontFamily: 'var(--font-mono)' }}
                               tickLine={false}
                               axisLine={{ stroke: 'var(--chart-grid)' }}
-                              minTickGap={48}
-                              tickFormatter={(m) => (m % 12 === 0 ? `${m / 12}y` : '')}
+                              interval={Math.max(1, Math.floor(histogramData.length / 6))}
                             />
-                            <YAxis
-                              tick={{
-                                fill: 'var(--chart-axis)',
-                                fontSize: 11,
-                                fontFamily: 'var(--font-mono)',
-                              }}
-                              tickFormatter={(v) => `${Math.round(v / 1000)}k`}
-                              tickLine={false}
-                              axisLine={false}
-                              width={44}
-                            />
+                            <YAxis tick={false} tickLine={false} axisLine={false} width={2} />
                             <Tooltip
-                              content={<TrajectoryTooltip />}
-                              isAnimationActive={false}
-                              cursor={{
-                                stroke: 'var(--chart-axis)',
-                                strokeWidth: 1,
-                                strokeOpacity: 0.6,
-                              }}
-                            />
-                            {/* p90 / p10 frame the fan; alpha and width carry the
-                                distinction so all three paths stay in the
-                                monochrome palette. */}
-                            <Line
-                              type="monotone"
-                              dataKey="high"
-                              name="Best case (p90)"
-                              stroke="var(--chart-line)"
-                              strokeWidth={1}
-                              strokeOpacity={0.3}
-                              dot={false}
-                              activeDot={false}
+                              cursor={{ fill: 'color-mix(in srgb, var(--chart-line) 6%, transparent)' }}
+                              content={<HistogramTooltip />}
                               isAnimationActive={false}
                             />
-                            <Line
-                              type="monotone"
-                              dataKey="low"
-                              name="Worst case (p10)"
-                              stroke="var(--chart-line)"
-                              strokeWidth={1}
-                              strokeOpacity={0.6}
-                              dot={false}
-                              activeDot={false}
+                            <Bar
+                              dataKey="count"
+                              fill="var(--chart-line)"
+                              fillOpacity={0.75}
                               isAnimationActive={false}
                             />
-                            <Line
-                              type="monotone"
-                              dataKey="median"
-                              name="Median (p50)"
-                              stroke="var(--chart-line)"
-                              strokeWidth={2}
-                              dot={false}
-                              activeDot={{
-                                r: 2.5,
-                                fill: 'var(--chart-line)',
-                                stroke: 'var(--chart-surface)',
-                                strokeWidth: 1,
-                              }}
-                              isAnimationActive={false}
-                            />
-                            <Line
-                              type="monotone"
-                              dataKey="contributed"
-                              name="Total contributed"
-                              stroke="var(--chart-axis)"
-                              strokeWidth={1}
-                              dot={false}
-                              activeDot={false}
-                              isAnimationActive={false}
-                            />
-                          </ComposedChart>
+                            {histogramBucketFor(stats.final_percentiles.p50) && (
+                              <ReferenceLine
+                                x={histogramBucketFor(stats.final_percentiles.p50)}
+                                stroke="var(--chart-line)"
+                                strokeWidth={1.5}
+                              />
+                            )}
+                            {histogramBucketFor(stats.total_contributed) && (
+                              <ReferenceLine
+                                x={histogramBucketFor(stats.total_contributed)}
+                                stroke="var(--chart-axis)"
+                                strokeDasharray="4 3"
+                              />
+                            )}
+                          </BarChart>
                         </ResponsiveContainer>
                       </div>
                     </div>
@@ -1225,7 +1158,7 @@ export default function Simulator() {
                   <h3 className="text-base font-semibold text-ink">Outcome insights</h3>
                   <p className="max-w-prose text-sm text-ink-soft">
                     This run predates the insights backend. Re-run the simulation to see
-                    outcome statistics, the value trajectory, and the monthly-returns heatmap.
+                    outcome statistics, the final-value distribution, and the monthly-returns heatmap.
                   </p>
                 </div>
               )}
