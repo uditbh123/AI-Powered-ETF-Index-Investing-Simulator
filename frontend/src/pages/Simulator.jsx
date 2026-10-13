@@ -16,6 +16,7 @@ import {
   ChevronRight,
   Gauge,
   History,
+  Info,
   Landmark,
   Percent,
   Play,
@@ -32,6 +33,22 @@ import { queryToHoldings } from '../strategyHoldings'
 import { usePageTitle } from '../hooks/usePageTitle'
 
 const DEFAULT_HOLDINGS = [{ symbol: 'SPY', weight: 100 }]
+
+// Mirrors the backend's holding-weight rule (app/schemas.py): every weight is
+// a percentage in (0, 100] and the holding total must be exactly 100, since
+// the API converts these to fractions in (0, 1] summing to 1.0 before running.
+// The UI edits percents, so "must total 100" is the user-truth the form shows.
+function holdingsValidation(rows) {
+  const issues = []
+  if (rows.some((h) => Number(h.weight) <= 0)) {
+    issues.push('Every holding needs a weight greater than 0%.')
+  }
+  const total = rows.reduce((sum, h) => sum + (Number(h.weight) || 0), 0)
+  if (total !== 100) {
+    issues.push(`Holdings must total exactly 100% — currently ${total}%.`)
+  }
+  return issues
+}
 
 // Persistent pointer to the last successful run, so inputs AND results survive
 // navigating away and a full page reload. We persist the run_id, not the whole
@@ -222,6 +239,18 @@ function ToggleSwitch({ checked, onChange, title, subtitle, icon: Icon = Sparkle
   )
 }
 
+// Tiny native-tooltip helper: a Lucide info icon that also exposes the
+// explanation to screen readers, so short labels stay short and the detail
+// is one hover/indication away rather than baked into the card text.
+function LabelTooltip({ text }) {
+  return (
+    <span className="inline-flex items-center" title={text}>
+      <Info size={11} strokeWidth={1.8} className="text-ink-faint" aria-hidden="true" />
+      <span className="sr-only">{text}</span>
+    </span>
+  )
+}
+
 export default function Simulator() {
   usePageTitle('Simulator — ETF Simulator')
 
@@ -336,7 +365,7 @@ export default function Simulator() {
         setResult(run)
         setPhase('done')
         setInitialBalance(Number(run.params.initial_balance ?? 10000))
-        setHorizonYears((Number(run.params.horizon_months) ?? 120) / 12)
+        setHorizonYears(Number(run.params.horizon_months ?? 120) / 12)
         setContribution(Number(run.params.monthly_contribution ?? 200))
         setUseSentiment(Boolean(run.params.use_sentiment))
         setAdjustForInflation(Boolean(run.params.adjust_for_inflation))
@@ -409,6 +438,14 @@ export default function Simulator() {
     setPhase('running')
     setError(null)
     setCrisisData(null)
+    // Inline copy of the backend's holding-weight rule, surfaced before the
+    // API call so the user fixes the form rather than decoding a 422.
+    const issues = holdingsValidation(holdings)
+    if (issues.length) {
+      setError(issues.join(' '))
+      setPhase('idle')
+      return
+    }
     try {
       // Weights are edited as percentages; the API stores fractions that sum
       // to 1.0, so a reused portfolio converts before PATCHing. The conversion
@@ -526,32 +563,57 @@ export default function Simulator() {
 
   const statCards = result
     ? [
-        { icon: TrendingUp, label: 'Best case (90th)', value: result.summary.best_case_final_value, tone: 'tick-up' },
-        { icon: Gauge, label: 'Median outcome', value: result.summary.median_final_value, tone: 'text-accent' },
-        { icon: TrendingDown, label: 'Worst case (10th)', value: result.summary.worst_case_final_value, tone: 'tick-down' },
-      ]
+        // Only profit/loss semantics get pos/neg colour: chance-of-profit is a
+        // threshold verdict and the drawdown is a loss; plain dollar figures
+        // stay neutral so colour never invents an up/down judgement.
+        stats && {
+          icon: Percent,
+          label: 'Chance of profit',
+          value: `${(stats.probability_of_profit * 100).toFixed(0)}%`,
+          tone: stats.probability_of_profit >= 0.5 ? 'text-pos' : 'text-neg',
+          secondary: 'of simulated futures end in profit',
+        },
+        {
+          icon: Gauge,
+          label: 'Typical outcome',
+          value: formatCurrency(result.summary.median_final_value),
+          tone: 'text-ink',
+          secondary: 'half of futures end above this, half below',
+          tooltip:
+            'A percentile ranks simulated outcomes. The 50th (the median) is the middle outcome: half of futures end above it, half below.',
+        },
+        {
+          icon: TrendingDown,
+          label: 'Bad case (1 in 10)',
+          value: formatCurrency(result.summary.worst_case_final_value),
+          tone: 'text-ink',
+          secondary: 'only 1 in 10 futures end below this',
+          tooltip:
+            'The 10th percentile: only 1 in 10 simulated futures ends worse than this value.',
+        },
+        stats && {
+          icon: Activity,
+          label: 'Typical worst crash',
+          value: `\u2212${(stats.median_max_drawdown * 100).toFixed(0)}%`,
+          tone: 'text-neg',
+          secondary: 'the largest drop from a peak, on a typical future',
+          tooltip:
+            'Drawdown is the largest fall from a peak to a trough on a simulated future, shown as a percent of that peak.',
+        },
+      ].filter(Boolean)
     : []
 
   const stats = result?.stats
   const insightCards = stats
     ? [
         {
-          icon: Percent,
-          label: 'Probability of profit',
-          value: `${(stats.probability_of_profit * 100).toFixed(0)}%`,
-          tone: stats.probability_of_profit >= 0.5 ? 'text-pos' : 'text-neg',
-        },
-        {
-          icon: Gauge,
-          label: 'Median final value',
-          value: formatCurrency(stats.final_percentiles.p50),
-          tone: 'text-accent',
-        },
-        {
-          icon: TrendingDown,
-          label: 'Worst case (p10)',
-          value: formatCurrency(stats.final_percentiles.p10),
+          icon: TrendingUp,
+          label: 'Good case (9 in 10)',
+          value: formatCurrency(stats.final_percentiles.p90),
           tone: 'text-ink',
+          secondary: 'only 1 in 10 futures end above this',
+          tooltip:
+            'The 90th percentile: 9 in 10 simulated futures end below this value.',
         },
         {
           icon: Scale,
@@ -570,19 +632,19 @@ export default function Simulator() {
               : stats.upside_downside_ratio >= 1
                 ? 'text-pos'
                 : 'text-neg',
-          title:
+          secondary:
+            stats.upside_downside_ratio === null
+              ? 'no losing month across the simulated futures'
+              : 'average winning month vs how bad losing months get',
+          tooltip:
             stats.upside_downside_ratio === null
               ? 'No month was negative across the simulated paths, so downside deviation is zero and the ratio is undefined.'
               : 'Mean of positive months divided by the root-mean-square of negative months, across all simulated paths.',
         },
-        {
-          icon: Activity,
-          label: 'Median max drawdown',
-          value: `${(stats.median_max_drawdown * 100).toFixed(1)}%`,
-          tone: 'text-ink',
-        },
       ]
     : []
+
+  const validationIssues = holdingsValidation(holdings)
 
   // Trajectory rows for the compact summary chart. `chartData` already carries
   // the p10/p50/p90 paths from the run's percentile series; this only adds the
@@ -832,6 +894,15 @@ export default function Simulator() {
                   <Plus size={13} strokeWidth={2} />
                   Add holding
                 </button>
+                {validationIssues.length > 0 && (
+                  <ul className="mt-2 space-y-1">
+                    {validationIssues.map((issue) => (
+                      <li key={issue} className="text-xs leading-snug text-neg">
+                        {issue}
+                      </li>
+                    ))}
+                  </ul>
+                )}
               </div>
             </section>
 
@@ -943,20 +1014,28 @@ export default function Simulator() {
             </div>
           ) : (
             <>
-              <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-                {statCards.map(({ icon: Icon, label, value, tone }) => (
-                  <div key={label} className="panel flex items-center gap-3 px-4 py-3">
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+                {statCards.map(({ icon: Icon, label, value, tone, secondary, tooltip }) => (
+                  <div key={label} className="panel flex items-start gap-3 px-4 py-3">
                     <span
-                      className={`flex h-8 w-8 shrink-0 items-center justify-center border border-edge bg-base-elevated ${tone}`}
+                      className={`mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center border border-edge bg-base-elevated ${tone}`}
                     >
                       <Icon size={15} strokeWidth={1.8} />
                     </span>
                     <span className="min-w-0">
-                      <span className="block text-xs font-medium uppercase tracking-widest text-ink-faint">
+                      <span className="flex items-center gap-1 text-xs font-medium uppercase tracking-widest text-ink-faint">
                         {label}
+                        {tooltip && <LabelTooltip text={tooltip} />}
                       </span>
-                      <span className="block truncate num text-xl text-ink">
-                        {formatCurrency(value)}
+                      <span
+                        className={`block truncate num text-xl ${
+                          tone === 'text-pos' || tone === 'text-neg' ? tone : 'text-ink'
+                        }`}
+                      >
+                        {value}
+                      </span>
+                      <span className="mt-0.5 block text-xs leading-snug text-ink-dim">
+                        {secondary}
                       </span>
                     </span>
                   </div>
@@ -998,16 +1077,22 @@ export default function Simulator() {
                       )}
                     </div>
                   )}
-                  <div className="grid grid-cols-2 gap-x-4 gap-y-5 p-4 sm:grid-cols-3 xl:grid-cols-5">
-                    {insightCards.map(({ icon: Icon, label, value, tone, title }) => (
-                      <div key={label} title={title}>
+                  <div className="grid grid-cols-2 gap-x-4 gap-y-5 p-4 sm:grid-cols-2 xl:grid-cols-3">
+                    {insightCards.map(({ icon: Icon, label, value, tone, secondary, tooltip }) => (
+                      <div key={label}>
                         <span className="flex items-center gap-1.5 text-11px font-semibold uppercase tracking-widest text-ink-faint">
                           <Icon size={12} strokeWidth={1.8} />
                           {label}
+                          {tooltip && <LabelTooltip text={tooltip} />}
                         </span>
                         <span className={`mt-1 block num text-xl ${tone}`}>
                           {value}
                         </span>
+                        {secondary && (
+                          <span className="mt-0.5 block text-xs leading-snug text-ink-dim">
+                            {secondary}
+                          </span>
+                        )}
                       </div>
                     ))}
                   </div>
@@ -1230,12 +1315,19 @@ export default function Simulator() {
                   </ResponsiveContainer>
                   </div>
                 </div>
+                <p className="border-t border-edge px-4 py-2.5 text-xs leading-snug text-ink-dim">
+                  How to read this chart: the middle line is the median outcome
+                  (50th percentile). The shaded band spans the 10th to 90th
+                  percentiles — the range the middle 80% of simulated futures
+                  fall inside. The band edges and the median line are real
+                  simulated paths.
+                </p>
               </div>
 
-                <div className="panel">
-                  <div className="panel-title">
-                    <span>Realized monthly returns</span>
-                    <span className="flex items-center gap-3 font-mono text-xs normal-case text-ink-faint">
+              <div className="panel">
+                <div className="panel-title">
+                  <span>Realized monthly returns</span>
+                  <span className="flex items-center gap-3 font-mono text-xs normal-case text-ink-faint">
                       {heatYears.length > 0 && (
                         <span title={`Trailing ${horizonYears}-year window, matching the investment horizon.`}>
                           {heatYears[0]}
