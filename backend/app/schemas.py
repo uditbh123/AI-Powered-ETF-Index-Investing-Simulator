@@ -363,6 +363,41 @@ class EtfAnalysisOut(BaseModel):
     correlation: CorrelationMatrix | None = None
 
 
+# --- Macro economy / external intelligence (Phase 8) ------------------------
+
+
+class MacroIndicatorOut(BaseModel):
+    """One stored macro indicator snapshot row (see app/dao/macro.py)."""
+
+    country: str
+    indicator: str
+    label: str | None = None
+    value: float | None = None
+    unit: str | None = None
+    period: str | None = None
+    source: str
+
+
+class EconomyOut(BaseModel):
+    """Macro indicator snapshot for the Economy page."""
+
+    count: int
+    as_of: str | None = None
+    indicators: list[MacroIndicatorOut] = []
+
+
+class ProviderOut(BaseModel):
+    """One external intelligence provider and whether it is configured."""
+
+    name: str
+    configured: bool
+    description: str
+
+
+class ProvidersOut(BaseModel):
+    providers: list[ProviderOut] = []
+
+
 __all__ = [
     "HoldingIn",
     "PortfolioCreate",
@@ -383,6 +418,10 @@ __all__ = [
     "DrawdownPoint",
     "CorrelationMatrix",
     "EtfAnalysisOut",
+    "MacroIndicatorOut",
+    "EconomyOut",
+    "ProviderOut",
+    "ProvidersOut",
     "MAX_SYMBOL_LENGTH",
     "MAX_HOLDING_WEIGHT",
     "MAX_HOLDINGS",

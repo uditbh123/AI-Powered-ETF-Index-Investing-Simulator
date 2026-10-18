@@ -10,6 +10,7 @@ from .errors import install_error_handlers
 from .routers import (
     analysis,
     crisis,
+    economy,
     health,
     news,
     portfolios,
@@ -67,6 +68,7 @@ app.include_router(simulations.router)
 app.include_router(news.router)
 app.include_router(screener.router)
 app.include_router(crisis.router)
+app.include_router(economy.router)
 
 # Registered after the routers so API routes keep priority; see app/errors.py
 # for why every error body must go through these.

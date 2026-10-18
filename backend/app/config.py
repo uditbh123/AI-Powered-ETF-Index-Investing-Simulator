@@ -28,6 +28,22 @@ class Settings(BaseSettings):
     news_http_timeout: int = 15
     news_max_items_per_feed: int = 20
 
+    # --- external intelligence providers (optional, key-gated) -------------
+    # Grok/X and Perplexity are LLM+search APIs. They are inert until their key
+    # is set: the provider functions call them only when the key is non-empty,
+    # so a checkout with no keys behaves exactly as before. Trading Economics
+    # is the exception -- its public country-list pages are readable without an
+    # account, so a key is optional (it switches to the structured JSON API).
+    # Everything here happens at *ingest* time (python -m app.scripts.intel_ingest),
+    # never on the request path, so the deployed API never needs these keys.
+    xai_api_key: str = ""
+    xai_model: str = "grok-4.7"
+    perplexity_api_key: str = ""
+    trading_economics_api_key: str = ""
+    # LLM/search calls are slower than an RSS pull; give them their own timeout.
+    intel_http_timeout: int = 30
+    intel_max_items: int = 10
+
     # --- scheduler (daily data refresh) -----------------------------------
     enable_scheduler: bool = True
     scheduler_timezone: str = "UTC"
