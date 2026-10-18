@@ -6,6 +6,7 @@ import AmbientDataGrid from './components/AmbientDataGrid'
 
 const Home = lazy(() => import('./pages/Home'))
 const Etfs = lazy(() => import('./pages/Etfs'))
+const EtfDetail = lazy(() => import('./pages/EtfDetail'))
 const FinancialNews = lazy(() => import('./pages/FinancialNews'))
 const Simulator = lazy(() => import('./pages/Simulator'))
 const Portfolios = lazy(() => import('./pages/Portfolios'))
@@ -43,6 +44,7 @@ function App() {
             <Routes>
               <Route path="/" element={<Home />} />
               <Route path="/etfs" element={<Etfs />} />
+              <Route path="/etfs/:symbol" element={<EtfDetail />} />
               <Route path="/news" element={<FinancialNews />} />
               <Route path="/portfolios" element={<Portfolios />} />
               <Route path="/simulator" element={<Simulator />} />

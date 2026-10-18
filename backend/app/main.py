@@ -7,7 +7,16 @@ from fastapi.responses import FileResponse, JSONResponse
 from .config import BACKEND_DIR, settings
 from .database import check_db_connected, init_db
 from .errors import install_error_handlers
-from .routers import crisis, health, news, portfolios, screener, simulations, tickers
+from .routers import (
+    analysis,
+    crisis,
+    health,
+    news,
+    portfolios,
+    screener,
+    simulations,
+    tickers,
+)
 from .scheduler import create_scheduler, shutdown_scheduler
 from .services.market_data import seed_catalog
 
@@ -52,6 +61,7 @@ app = FastAPI(
 
 app.include_router(health.router)
 app.include_router(tickers.router)
+app.include_router(analysis.router)
 app.include_router(portfolios.router)
 app.include_router(simulations.router)
 app.include_router(news.router)

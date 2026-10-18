@@ -275,6 +275,94 @@ class CrisisReplayRequest(BaseModel):
         return self
 
 
+# --- In-depth ETF analysis (detail page) ------------------------------------
+# Mirrors app/services/analysis.py. Every float is a percent unless the name
+# says otherwise (latest_close is a price, matrix cells are unitless).
+
+
+class AnalysisStats(BaseModel):
+    """The key-stat block for one ETF. Mirrors the screener where they overlap."""
+
+    latest_close: float
+    prev_close: float | None = None
+    one_day_change_pct: float | None = None
+    one_year_total_return_pct: float | None = None
+    annualized_volatility_pct: float | None = None
+    max_drawdown_pct: float
+    full_max_drawdown_pct: float | None = None
+    best_day_pct: float | None = None
+    worst_day_pct: float | None = None
+    best_month_pct: float | None = None
+    worst_month_pct: float | None = None
+    sharpe_annualized: float | None = None
+    price_rows: int
+    first_date: str | None = None
+    last_date: str | None = None
+
+
+class TrailingReturn(BaseModel):
+    """One horizon on the trailing-returns bar chart.
+
+    ``return_pct`` is the plain total return over the window; ``annualized`` is
+    the per-annum figure and is None when the window is under a year (or when a
+    wiped-out position has no real annual rate).
+    """
+
+    label: str
+    return_pct: float | None
+    months: int
+    annualized: float | None = None
+
+
+class MonthlyReturnCell(BaseModel):
+    """One cell of the year-by-month return heatmap."""
+
+    year: int
+    month: int = Field(ge=1, le=12)
+    return_pct: float
+
+
+class HistogramBin(BaseModel):
+    """One bar of the daily-return histogram (percent log returns)."""
+
+    start_pct: float
+    end_pct: float
+    count: int
+
+
+class DrawdownPoint(BaseModel):
+    """One point of the drawdown area chart (month-end, negative percent)."""
+
+    date: str
+    drawdown_pct: float
+
+
+class CorrelationMatrix(BaseModel):
+    """Correlation of monthly returns: symbols list + square matrix.
+
+    ``matrix[i][j]`` is the Pearson coefficient between ``symbols[i]`` and
+    ``symbols[j]`` (None where there is too little overlap). ``symbols[0]`` is
+    the subject ETF, so its diagonal sits at index 0.
+    """
+
+    symbols: list[str]
+    matrix: list[list[float | None]]
+
+
+class EtfAnalysisOut(BaseModel):
+    """Full in-depth analysis payload for one ETF (detail page)."""
+
+    symbol: str
+    name: str | None = None
+    sector: str | None = None
+    stats: AnalysisStats | None = None
+    trailing_returns: list[TrailingReturn] = []
+    monthly_returns: list[MonthlyReturnCell] = []
+    returns_histogram: list[HistogramBin] = []
+    drawdown_series: list[DrawdownPoint] = []
+    correlation: CorrelationMatrix | None = None
+
+
 __all__ = [
     "HoldingIn",
     "PortfolioCreate",
@@ -288,6 +376,13 @@ __all__ = [
     "NewsFeedOut",
     "ScreenerOut",
     "CrisisReplayRequest",
+    "AnalysisStats",
+    "TrailingReturn",
+    "MonthlyReturnCell",
+    "HistogramBin",
+    "DrawdownPoint",
+    "CorrelationMatrix",
+    "EtfAnalysisOut",
     "MAX_SYMBOL_LENGTH",
     "MAX_HOLDING_WEIGHT",
     "MAX_HOLDINGS",
