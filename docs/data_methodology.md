@@ -287,3 +287,47 @@ regardless of how long any individual path was held.
 points by a growing factor changes measured drawdowns. That is intentional — a
 real drawdown is the one an investor would feel — but it means
 `median_max_drawdown` is not comparable between an inflated and a nominal run.
+
+## External intelligence sources
+
+Three optional upstreams complement the RSS news layer. They exist because RSS
+alone is slow and one-directional; these add (a) what is being said *now*, and
+(b) hard macro numbers.
+
+| Provider | Endpoint | Key | Output |
+|---|---|---|---|
+| Grok (X Search) | `api.x.ai/v1/responses` with the server-side `x_search` tool | `XAI_API_KEY` | One cited synthesis of live X sentiment |
+| Perplexity | `api.perplexity.ai/search` | `PERPLEXITY_API_KEY` | Discrete, ranked, fresh web results |
+| Trading Economics | `api.tradingeconomics.com/...` (key) or public `country-list` pages (keyless) | optional | Macro indicators |
+
+**Ingest-only.** None of this runs on the request path. `GET /news` and
+`GET /economy/*` only read what has already been stored, so the deployed API
+needs no provider key and makes no outbound call to answer a request. Fetching
+happens in the CLI `python -m app.scripts.intel_ingest`, exactly as the RSS
+pipeline is driven by `sentiment_ingest`.
+
+**Storage.** Provider headlines are normalized to the existing `NewsItem` shape
+and scored with the same FinBERT model, then written to `news_sentiment` — so
+they appear in `GET /news` beside RSS rows with no schema change. Macro figures
+go to the new `macro_indicators` table (`UNIQUE (country, indicator, source)`,
+UPSERT, so re-running refreshes rather than duplicates) and surface via
+`GET /economy/indicators`.
+
+**No new dependency.** Every call uses stdlib `urllib`; the Trading Economics
+keyless fallback parses its country-list HTML with `html.parser`. This keeps the
+deployed image on `requirements.txt` unchanged and the import-hygiene test green
+— nothing here imports feedparser, httpx, or the model stack at module scope.
+
+**Quality caveats.**
+- Grok returns a *synthesis*, not discrete posts, so one provider call yields one
+  headline whose `url` is the first X citation. Treat it as a summary, not a
+  primary source.
+- Perplexity and Grok are non-deterministic and, at ingest time only, send the
+  query text to a third party (the ticker symbol and a generic macro prompt —
+  no portfolio, holding weight, or user data is ever included).
+- The Trading Economics keyless path scrapes a page whose layout we do not
+  control: the parser locates the country/`Last` table by header rather than
+  fixed positions and skips anything it cannot find, so a layout change degrades
+  to fewer rows, never a crash. The keyed JSON API is the sturdier path.
+- Macro indicators are a single latest snapshot per (country, indicator), not a
+  time series.

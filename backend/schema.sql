@@ -68,6 +68,22 @@ CREATE TABLE IF NOT EXISTS news_sentiment (
     category          TEXT    NOT NULL CHECK (category IN ('sector', 'geopolitical'))
 );
 
+-- Macro economic indicators (Phase 8 / external intel). One row per
+-- (country, indicator, source); the ingest upserts the latest reading so the
+-- table holds the current snapshot rather than a full time series.
+CREATE TABLE IF NOT EXISTS macro_indicators (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    country    TEXT    NOT NULL,
+    indicator  TEXT    NOT NULL,                 -- canonical slug, e.g. 'inflation_rate'
+    label      TEXT,                             -- display label, e.g. 'Inflation Rate'
+    value      REAL,
+    unit       TEXT,                             -- '%', 'index', ...
+    period     TEXT,                             -- reference date/period as published
+    source     TEXT    NOT NULL,                 -- 'tradingeconomics'
+    fetched_at TEXT    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE (country, indicator, source)
+);
+
 CREATE INDEX IF NOT EXISTS idx_prices_ticker_date        ON prices (ticker_id, date);
 CREATE INDEX IF NOT EXISTS idx_portfolio_holdings_port   ON portfolio_holdings (portfolio_id);
 CREATE INDEX IF NOT EXISTS idx_sim_runs_portfolio        ON simulation_runs (portfolio_id);
@@ -75,3 +91,4 @@ CREATE INDEX IF NOT EXISTS idx_sim_results_run           ON simulation_results (
 CREATE INDEX IF NOT EXISTS idx_news_ticker_published     ON news_sentiment (ticker_id_or_null, published_at);
 CREATE INDEX IF NOT EXISTS idx_news_category_published
     ON news_sentiment (category, published_at);
+CREATE INDEX IF NOT EXISTS idx_macro_indicator_country   ON macro_indicators (indicator, country);

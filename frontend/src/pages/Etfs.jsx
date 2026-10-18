@@ -203,8 +203,8 @@ export default function Etfs() {
                 {sortedRows.map((row) => (
                   <tr
                     key={row.symbol}
-                    onClick={() => navigate(`/simulator?ticker=${row.symbol}`)}
-                    title={`Run a simulation with ${row.symbol}`}
+                    onClick={() => navigate(`/etfs/${encodeURIComponent(row.symbol)}`)}
+                    title={`Open in-depth analysis for ${row.symbol}`}
                     className="cursor-pointer border-b border-edge-subtle transition-colors last:border-0 hover:bg-base-hover"
                   >
                     {COLUMNS.map((column) => (

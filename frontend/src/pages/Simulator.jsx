@@ -346,7 +346,7 @@ export default function Simulator() {
     }
     if (!raw?.runId) return
 
-    setRestoredFrom({ runId: raw.runId, savedAt: raw.savedAt ?? null })
+    setRestoredFrom({ runId: raw.runId })
 
     async function restore() {
       try {
@@ -371,10 +371,13 @@ export default function Simulator() {
             applyPortfolio(portfolio)
           }
         }
-      } catch {
+      } catch (e) {
         if (!cancelled) {
-          // Run no longer available (DB reset / evicted): drop the pointer so
-          // the empty state shows and the affordance does not linger.
+          // Any restore failure - run evicted, corrupt run id, network error -
+          // must degrade to the clean empty form, never a white screen. Drop
+          // the pointer so the affordance does not linger, and surface exactly
+          // one diagnostic for the browser console.
+          console.warn('[simulator] unable to restore last run, starting empty:', e)
           localStorage.removeItem(LAST_RUN_KEY)
           setRestoredFrom(null)
           setPhase('idle')
@@ -489,7 +492,6 @@ export default function Simulator() {
           JSON.stringify({
             runId: sim.run_id,
             portfolioId: sim.portfolio_id,
-            savedAt: new Date().toISOString(),
           }),
         )
       } catch {
@@ -523,7 +525,7 @@ export default function Simulator() {
   }
 
   const bandPath = (level) =>
-    result?.percentiles.find((p) => p.level === level)?.path ?? []
+    result?.percentiles?.find((p) => p.level === level)?.path ?? []
   const lowBand = bandPath(10)
   const medianBand = bandPath(50)
   const highBand = bandPath(90)
@@ -534,7 +536,7 @@ export default function Simulator() {
   })
 
   const crisisLevel = (level) =>
-    crisisData?.percentiles.find((p) => p.level === level)?.path ?? []
+    crisisData?.percentiles?.find((p) => p.level === level)?.path ?? []
   const crisisLow = crisisLevel(10)
   const crisisMed = crisisLevel(50)
   const crisisHigh = crisisLevel(90)
@@ -551,6 +553,14 @@ export default function Simulator() {
     }
   })
 
+  // NOTE: `stats` MUST be declared before `statCards` below. `statCards`
+  // evaluates `stats && {...}` while building its array, and a `const`
+  // binding is in the temporal dead zone until its own line runs - reading it
+  // any earlier throws `ReferenceError: Cannot access 'stats' before
+  // initialization`, which unmounts the whole page the moment a result exists
+  // (fresh run or restored run alike). This is the Stage X2 blank-page bug.
+  const stats = result?.stats
+
   const statCards = result
     ? [
         // Only profit/loss semantics get pos/neg colour: chance-of-profit is a
@@ -566,7 +576,9 @@ export default function Simulator() {
         {
           icon: Gauge,
           label: 'Typical outcome',
-          value: formatCurrency(result.summary.median_final_value),
+          value: formatCurrency(
+            result.summary?.median_final_value ?? stats?.final_percentiles?.p50 ?? 0,
+          ),
           tone: 'text-ink',
           secondary: 'half of futures end above this, half below',
           tooltip:
@@ -575,7 +587,9 @@ export default function Simulator() {
         {
           icon: TrendingDown,
           label: 'Bad case (1 in 10)',
-          value: formatCurrency(result.summary.worst_case_final_value),
+          value: formatCurrency(
+            result.summary?.worst_case_final_value ?? stats?.final_percentiles?.p10 ?? 0,
+          ),
           tone: 'text-ink',
           secondary: 'only 1 in 10 futures end below this',
           tooltip:
@@ -593,7 +607,6 @@ export default function Simulator() {
       ].filter(Boolean)
     : []
 
-  const stats = result?.stats
   const insightCards = stats
     ? [
         {
@@ -652,28 +665,34 @@ export default function Simulator() {
 
   // Final-value distribution from the run's 20-bin histogram. Each bin becomes
   // a bar keyed by its midpoint label; the tooltip shows the bin's real range
-  // rather than the rounded label. The empty series for a legacy (stats-null)
-  // run leaves the panel with no bars to draw.
-  const histogramData = stats
-    ? stats.histogram.bin_edges.slice(0, -1).map((low, i) => {
-        const high = stats.histogram.bin_edges[i + 1]
-        const mid = (low + high) / 2
-        return {
-          count: stats.histogram.counts[i],
-          low,
-          high,
-          label: `${Math.round(mid / 1000)}k`,
-          value: mid,
-        }
-      })
-    : []
+  // rather than the rounded label. The histogram itself is optional data: a
+  // run whose stats lack a histogram field (older insights runs, or a cached
+  // reply that lost the field) must render the panels without bars rather than
+  // crash on `stats.histogram.bin_edges`, so both edges and counts are
+  // validated before mapping.
+  const histEdges = stats?.histogram?.bin_edges
+  const histCounts = stats?.histogram?.counts
+  const histogramData =
+    Array.isArray(histEdges) && histEdges.length > 1 && Array.isArray(histCounts)
+      ? histEdges.slice(0, -1).map((low, i) => {
+          const high = histEdges[i + 1]
+          const mid = (low + high) / 2
+          return {
+            count: histCounts[i] ?? 0,
+            low,
+            high,
+            label: `${Math.round(mid / 1000)}k`,
+            value: mid,
+          }
+        })
+      : []
 
   // Maps a value to its bin's bar so p50 and total-contributed can be drawn as
   // reference lines, or skipped entirely when the value falls outside the
   // binned range (a contributed line beyond the last bar would just float).
   const histogramBucketFor = (value) => {
     if (!histogramData.length) return null
-    const edges = stats.histogram.bin_edges
+    const edges = histEdges
     if (value < edges[0] || value > edges[edges.length - 1]) return null
     const index = edges.findIndex((e) => e >= value)
     const bucket = histogramData[Math.min(Math.max(index - 1, 0), histogramData.length - 1)]
@@ -725,8 +744,6 @@ export default function Simulator() {
             <span className="chip" title="The inputs and results from your last successful run were brought back when this page loaded. Nothing was re-simulated automatically.">
               <History size={11} strokeWidth={2} className="text-ink-faint" />
               Restored from your last run
-              {restoredFrom.savedAt &&
-                ` · ${new Date(restoredFrom.savedAt).toLocaleString()}`}
             </span>
             <button
               type="button"
