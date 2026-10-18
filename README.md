@@ -15,7 +15,6 @@ and financial/geopolitical news sentiment analysis with FinBERT.
 |---|---|
 | **Group** | Udit Bhattarai, Lotus Nyaupane, Dipen Gaihre |
 | **Repository** | https://github.com/uditbh123/AI-Powered-ETF-Index-Investing-Simulator |
-| **Demo video (≤ 10 min)** | `<PASTE YOUTUBE LINK HERE>` — must play without being signed in |
 | **Timeline** | 8 weeks, ~135 h/person (~405 h total) |
 
 ### Final results
